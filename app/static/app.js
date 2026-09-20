@@ -234,3 +234,14 @@ async function poll(){
   }catch(e){error(e.message);}finally{setTimeout(poll,5000);}
 }
 (async()=>{try{accountList=(await api('accounts')).accounts;renderAccounts();if(accountList.length)await loadAccount(accountList[0].id);else{$('mode-badge').textContent='No account';showPage('accounts');}poll();}catch(e){error(e.message);}})();
+
+// Keep mobile dialogs inside the visible area while the keyboard is open.
+function updateDialogViewport() {
+  const viewport = window.visualViewport;
+  document.documentElement.style.setProperty('--visual-height', `${viewport?.height || window.innerHeight}px`);
+  document.documentElement.style.setProperty('--visual-top', `${viewport?.offsetTop || 0}px`);
+}
+window.visualViewport?.addEventListener('resize', updateDialogViewport);
+window.visualViewport?.addEventListener('scroll', updateDialogViewport);
+window.addEventListener('resize', updateDialogViewport);
+updateDialogViewport();
