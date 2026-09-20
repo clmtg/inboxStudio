@@ -1,6 +1,7 @@
 services:
   imapfilter:
-    image: ghcr.io/clmtg/inboxstudio:${INBOXSTUDIO_VERSION:-0.2.0}
+    build: .
+    image: inbox-studio:local
     restart: unless-stopped
     init: true
     environment:
@@ -24,7 +25,8 @@ services:
         max-size: 10m
         max-file: "3"
   web:
-    image: ghcr.io/clmtg/inboxstudio:${INBOXSTUDIO_VERSION:-0.2.0}
+    image: inbox-studio:local
+    build: .
     entrypoint: ["python3", "/app/server.py"]
     restart: unless-stopped
     init: true

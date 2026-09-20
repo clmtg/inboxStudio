@@ -1,4 +1,7 @@
 FROM debian:bookworm-slim
+LABEL org.opencontainers.image.source="https://github.com/clmtg/inboxStudio" \
+      org.opencontainers.image.licenses="GPL-3.0-only" \
+      org.opencontainers.image.title="inboxStudio"
 RUN apt-get update \
     && apt-get install -y --no-install-recommends imapfilter ca-certificates python3 \
     && rm -rf /var/lib/apt/lists/* \

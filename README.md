@@ -35,16 +35,16 @@ DNS does not restrict an otherwise internet-accessible Traefik entrypoint.
 
 ## Setup
 
-1. Download or clone this project into your stack directory.
-2. Copy `.env.example` to `.env` and set
+1. Download `compose.yaml` and `env.example` from the [latest release](https://github.com/clmtg/inboxStudio/releases/latest) into your stack directory. Source files are not required.
+2. Copy `env.example` to `.env` and set
    `INBOXSTUDIO_HOST` to your chosen hostname. Keep `.env` private.
 3. Point that hostname to your Traefik server and configure access in your
    authentication middleware.
-4. Build and start the stack:
+4. Pull the selected version and start the stack:
 
    ```sh
-   docker compose build
-   docker compose up -d --no-build
+   docker compose pull
+   docker compose up -d
    docker compose logs --tail 50 web imapfilter
    ```
 
@@ -60,8 +60,8 @@ for scans. Passwords are never returned by the accounts API or rule exports. Bot
 filesystems and a shared writable rules volume.
 
 `DRY_RUN` and `INTERVAL_SECONDS` seed settings on the first start only. After
-that, manage them in the UI. If Dockge cannot build because its Buildx directory
-is read-only, run the build commands over SSH in the stack directory.
+that, manage them in the UI. Deployment uses prebuilt images, so Dockge does not
+need to build anything.
 
 ## Rule examples
 
@@ -114,10 +114,12 @@ Do not run `docker compose down -v` unless you intend to remove this data.
 Rule edits need no rebuild. Running scans finish with their original snapshot;
 new settings apply to subsequent scans. Conflicting browser saves are rejected.
 
-For code updates, replace project files, preserve `.env` and the volume, then run:
+For updates, set `INBOXSTUDIO_VERSION` in `.env` to the desired release (for example
+`0.2.0`), then use Dockge’s pull/recreate controls or run:
 
 ```sh
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 ```
 
 Upgrading from the initial private setup: add `INBOXSTUDIO_HOST` to your existing
@@ -184,3 +186,45 @@ be silently forwarded to a different destination. Disable automatic scans to
 pause an account; an in-progress scan completes using its original settings.
 All accounts are visible to the one trusted administrator; this is not a
 multi-user service. Up to 20 accounts are supported.
+
+## Switching an existing Dockge stack to release images
+
+One final Compose replacement is needed. Keep the existing stack directory and
+project name (for example `mailfiltering`), `.env`, and `rules-data` volume. Back
+up the volume first. Replace only `compose.yaml` with the release attachment,
+then add `INBOXSTUDIO_VERSION=0.2.0` to your existing `.env`. Keep
+`INBOXSTUDIO_HOST` and any credentials still needed for the first account migration.
+Run `docker compose pull` followed by `docker compose up -d`. Your old source
+files can remain on disk; the release Compose file no longer uses them.
+
+Future routine updates require only a version change and pull/recreate. Read the
+release notes for any changes to Compose itself. Do not delete the data volume or
+change the stack name: that could select a different, empty volume.
+
+Pin an explicit version for predictable updates. `latest` is available but moves
+with each release. To roll back application code, choose the previous version
+and pull/recreate; any data-format rollback requirements will be stated in the
+release notes. Mail already moved or deleted is not undone by rolling back.
+
+## Building locally
+
+The original source-build stack is kept in `compose.build.yaml`:
+
+```sh
+docker compose -f compose.build.yaml up -d --build
+```
+
+Use either deployment or build Compose, not both at once.
+
+## Publishing a release (maintainers)
+
+Commit tested changes, then create and push a new stable `vX.Y.Z` tag. Do not
+reuse an existing version. The release workflow runs the full check suite, builds
+`linux/amd64` and `linux/arm64` images, publishes version and `latest` tags to
+`ghcr.io/clmtg/inboxstudio`, and creates a GitHub release with deployment files.
+No personal registry token is required; the workflow uses its `GITHUB_TOKEN`.
+
+On the first publication, make the `inboxstudio` container package **Public** in
+GitHub Package settings. GitHub initially creates container packages as private.
+Verify an anonymous image pull before advertising the release as installable.
+A public source repository alone does not make its package public.

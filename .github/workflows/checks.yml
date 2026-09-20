@@ -1,5 +1,9 @@
 name: Checks
-on: [push, pull_request]
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
 permissions:
   contents: read
 jobs:
@@ -30,7 +34,9 @@ jobs:
           IMAP_USERNAME: example@icloud.com
           IMAP_PASSWORD: dummy-not-a-credential
           INBOXSTUDIO_HOST: rules.example.com
-        run: docker compose config --quiet
+        run: |
+          docker compose config --quiet
+          docker compose -f compose.build.yaml config --quiet
       - name: Build image
         run: docker build -t inboxstudio:test .
       - name: Check image runtime and empty defaults

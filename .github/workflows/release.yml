@@ -1,0 +1,71 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+concurrency:
+  group: release
+  cancel-in-progress: false
+jobs:
+  checks:
+    uses: ./.github/workflows/checks.yml
+  publish:
+    needs: checks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate release version
+        id: version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo 'Use a stable release tag such as v0.2.0.' >&2
+            exit 1
+          fi
+          echo "number=${RELEASE_TAG#v}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and publish amd64 and arm64 images
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ghcr.io/clmtg/inboxstudio:${{ steps.version.outputs.number }}
+            ghcr.io/clmtg/inboxstudio:latest
+          labels: |
+            org.opencontainers.image.version=${{ steps.version.outputs.number }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Prepare versioned deployment files
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.number }}
+        run: |
+          mkdir release-assets
+          python3 - <<'PY'
+          import os, re
+          from pathlib import Path
+          version = os.environ['RELEASE_VERSION']
+          compose = re.sub(r'\$\{INBOXSTUDIO_VERSION:-[^}]+\}', '${INBOXSTUDIO_VERSION:-' + version + '}', Path('compose.yaml').read_text())
+          env = re.sub(r'^INBOXSTUDIO_VERSION=.*$', 'INBOXSTUDIO_VERSION=' + version, Path('.env.example').read_text(), flags=re.M)
+          Path('release-assets/compose.yaml').write_text(compose)
+          Path('release-assets/env.example').write_text(env)
+          PY
+      - name: Create GitHub release with deployment files
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$RELEASE_TAG" --verify-tag --title "inboxStudio $RELEASE_TAG" --generate-notes release-assets/compose.yaml release-assets/env.example
