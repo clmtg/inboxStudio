@@ -6,9 +6,10 @@ import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, parse_qs
 
 import rules
+import accounts
 
 STATIC = Path(__file__).with_name('static')
 LOCK = threading.Lock()
@@ -29,13 +30,21 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def account_id(self):
+        values = parse_qs(urlsplit(self.path).query).get('account', ['default'])
+        key = values[0]
+        accounts.get(key)
+        return key
+
     def do_GET(self):
         path = urlsplit(self.path).path
         try:
+            if path == '/api/accounts':
+                return self.respond(200, {'accounts':[accounts.public(a) for a in accounts.read()['accounts']]})
             if path == '/api/rules':
-                return self.respond(200, rules.read())
+                return self.respond(200, rules.read(self.account_id()))
             if path == '/api/status':
-                status_path = rules.DATA / 'status.json'
+                status_path = rules.directory(self.account_id()) / 'status.json'
                 status = json.loads(status_path.read_text()) if status_path.exists() else {'state': 'waiting', 'message': 'Waiting for the first scan', 'results': [], 'folders': []}
                 return self.respond(200, status)
             files = {'/': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'text/javascript; charset=utf-8'), '/style.css': ('style.css', 'text/css; charset=utf-8')}
@@ -58,21 +67,32 @@ class Handler(BaseHTTPRequestHandler):
             if not 0 < size <= 262144:
                 return self.respond(413, {'error': 'Request is too large or empty'})
             data = json.loads(self.rfile.read(size))
+            path = urlsplit(self.path).path
+            if path == '/api/accounts/test':
+                return self.respond(200, accounts.test_connection(data))
             with LOCK:
-                if self.path == '/api/rules':
+                if path == '/api/accounts':
+                    return self.respond(200, accounts.save(data))
+                account_id = self.account_id()
+                folder = rules.directory(account_id)
+                if path == '/api/rules':
                     rules.validate(data)
-                    previous = rules.read()
+                    previous = rules.read(account_id)
                     if data['revision'] != previous['revision']:
                         return self.respond(409, {'error': 'Rules changed in another window. Reload before saving.'})
                     data['revision'] += 1
-                    rules.atomic_json(rules.DATA / 'rules.previous.json', previous)
-                    rules.atomic_json(rules.DATA / 'rules.json', data)
+                    rules.atomic_json(folder / 'rules.previous.json', previous)
+                    rules.atomic_json(folder / 'rules.json', data)
                     return self.respond(200, data)
-                if self.path == '/api/scan':
+                if path == '/api/scan':
+                    if not accounts.get(account_id)['enabled']:
+                        return self.respond(400, {'error':'Enable this account before scanning'})
                     token = str(uuid.uuid4())
-                    rules.atomic_json(rules.DATA / 'scan-request.json', {'id': token, 'requested_at': time.time()})
+                    rules.atomic_json(folder / 'scan-request.json', {'id': token, 'requested_at': time.time()})
                     return self.respond(202, {'id': token, 'message': 'Scan queued'})
             self.respond(404, {'error': 'Not found'})
+        except accounts.Conflict as error:
+            self.respond(409, {'error': str(error)})
         except (ValueError, TypeError, KeyError) as error:
             self.respond(400, {'error': str(error)})
         except OSError:
@@ -85,6 +105,7 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == '__main__':
     rules.initialize()
+    accounts.initialize()
     server = ThreadingHTTPServer((os.environ.get('WEB_LISTEN', '0.0.0.0'), int(os.environ.get('PORT', '8080'))), Handler)
     server.daemon_threads = True
     print('Rule editor listening on port %d' % server.server_port, flush=True)

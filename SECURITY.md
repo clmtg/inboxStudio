@@ -7,8 +7,10 @@ that can reach it directly can read rules, change actions, and request scans.
 Only trusted containers should share the proxy network.
 
 Treat access to the UI, Docker host, and shared data volume as access to your
-mail filtering controls. The worker holds the iCloud app-specific password;
-Docker administrators can access it. Rule exports, folders, and logs may contain
+mail filtering controls. Passwords are stored unencrypted in `accounts.json` with owner-only (0600) file
+permissions. Both services need access: the web service saves and tests credentials,
+and the worker uses them. Docker administrators and anyone with a volume backup
+can read them. Passwords are not returned by the HTTP API or rule exports. Rule exports, folders, and logs may contain
 private information. Do not attach them to public issues without reviewing them.
 
 Mailbox contents and From headers are untrusted. From matching is not sender

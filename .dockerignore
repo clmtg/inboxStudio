@@ -17,3 +17,5 @@ rules.previous.json
 status.json
 scan-request.json
 inbox-rules*.json
+accounts.json
+.accounts.lock

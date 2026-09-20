@@ -5,8 +5,8 @@ services:
     restart: unless-stopped
     init: true
     environment:
-      IMAP_USERNAME: ${IMAP_USERNAME:?Set your iCloud Mail username in .env}
-      IMAP_PASSWORD: ${IMAP_PASSWORD:?Set your Apple app-specific password in .env}
+      IMAP_USERNAME: ${IMAP_USERNAME:-}
+      IMAP_PASSWORD: ${IMAP_PASSWORD:-}
     depends_on:
       - web
     volumes:

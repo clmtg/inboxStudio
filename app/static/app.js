@@ -1,5 +1,6 @@
 'use strict';
 const $ = id => document.getElementById(id);
+let accountList = [], currentAccount = null, accountEditing = null, switching = false;
 let saved, draft, status = {}, filter = 'all', editing = null, dragId = null, busy = false;
 const fields = {sender_domain: 'Sender domain', sender_email: 'Sender email', subject: 'Subject', body: 'Body', subject_or_body: 'Subject or body', age_hours: 'Received age', flagged: 'Flag status'};
 const escapeHTML = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -8,7 +9,8 @@ const dirty = () => saved && JSON.stringify(saved) !== JSON.stringify(draft);
 const error = message => { $('error').textContent = message; $('error').hidden = !message; };
 let toastTimer;
 function toast(message) { $('toast').textContent = message; $('toast').hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => $('toast').hidden = true, 3500); }
-async function api(path, data) {
+async function api(path, data, accountId=currentAccount) {
+  if (['rules','status','scan'].includes(path)) path += '?account='+encodeURIComponent(accountId || 'default');
   const response = await fetch(location.origin + '/api/' + path, data === undefined ? {} : {method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data)});
   if (response.status === 401) throw new Error('Your session needs a sign-in. Reload this page.');
   const result = await response.json();
@@ -52,15 +54,16 @@ function renderStatus() {
   const total = (status.results || []).reduce((sum, item) => sum + item.count, 0);
   $('match-count').textContent = status.finished_at ? total : '—';
   const stale = status.revision !== saved?.revision;
-  const offline = status.state === 'running' ? Date.now()/1000 - (status.heartbeat_at || status.started_at || 0) > 20 : status.next_scan_at && Date.now()/1000 > status.next_scan_at + 30;
+  const paused = currentAccount && !accountList.find(a=>a.id===currentAccount)?.enabled;
+  const offline = !paused && (status.state === 'running' ? Date.now()/1000 - (status.heartbeat_at || status.started_at || 0) > 20 : status.next_scan_at && Date.now()/1000 > status.next_scan_at + 30);
   $('match-label').textContent = offline ? 'Worker may be offline' : status.state === 'running' ? 'Scan in progress' : stale && status.finished_at ? 'Previous rule version' : status.preview ? 'preview · no mail changed' : status.finished_at ? 'across your rules' : 'No scan yet';
   const names = {running:'Scanning your Inbox…',success:'Scan completed',error:'Scan needs attention',waiting:'Waiting for the worker'};
   const when = status.finished_at || status.started_at;
-  $('activity-summary').innerHTML = `<p class="activity-state ${status.state === 'error' ? 'activity-error' : ''}">${offline ? 'Worker may be offline' : names[status.state] || 'Waiting for the worker'}</p><p class="muted">${when ? escapeHTML(new Date(when*1000).toLocaleString()) : 'Start the IMAPFilter service to see results.'}${status.revision !== undefined ? ` · Rules revision ${status.revision} · ${status.preview ? 'Preview' : 'Live'}` : ''}</p>${status.inbox_count === undefined ? '' : `<p class="muted">${status.inbox_count} Inbox messages checked. ${total} matches reported${status.state === 'error' ? ' before the error' : ''}.</p>`}${stale && status.finished_at ? '<p class="muted">Saved rules have changed since this scan.</p>' : ''}`;
+  $('activity-summary').innerHTML = `<p class="activity-state ${status.state === 'error' ? 'activity-error' : ''}">${paused ? 'Account paused' : offline ? 'Worker may be offline' : names[status.state] || 'Waiting for the worker'}</p><p class="muted">${when ? escapeHTML(new Date(when*1000).toLocaleString()) : 'Start the IMAPFilter service to see results.'}${status.revision !== undefined ? ` · Rules revision ${status.revision} · ${status.preview ? 'Preview' : 'Live'}` : ''}</p>${status.inbox_count === undefined ? '' : `<p class="muted">${status.inbox_count} Inbox messages checked. ${total} matches reported${status.state === 'error' ? ' before the error' : ''}.</p>`}${stale && status.finished_at ? '<p class="muted">Saved rules have changed since this scan.</p>' : ''}`;
   $('results-list').innerHTML = (status.results || []).map(result => `<div class="result-row"><span>${escapeHTML(saved?.rules.find(r=>r.id===result.id)?.name || result.id)}</span><b>${result.count} matched</b></div>`).join('') || '<p class="muted">Results will appear after the worker evaluates your rules.</p>';
   $('worker-log').textContent = (status.logs || []).join('\n') || 'No log entries yet.';
   $('folders').innerHTML = (status.folders || []).map(f => `<option value="${escapeHTML(f)}"></option>`).join('');
-  for (const id of ['scan-now','activity-scan']) { $(id).disabled = status.state === 'running' && !offline; $(id).textContent = status.state === 'running' && !offline ? '↻ Scanning…' : '↻ Scan now'; }
+  for (const id of ['scan-now','activity-scan']) { $(id).disabled = !currentAccount || switching || !accountList.find(a=>a.id===currentAccount)?.enabled || status.state === 'running' && !offline; $(id).textContent = status.state === 'running' && !offline ? '↻ Scanning…' : '↻ Scan now'; }
 }
 function changeOrder(id, target) {
   const source = draft.rules.findIndex(r=>r.id===id);
@@ -84,7 +87,8 @@ $('rule-list').addEventListener('drop', e=> { e.preventDefault(); const row=e.ta
 $('rule-list').addEventListener('dragend', ()=>{dragId=null; render();});
 document.querySelectorAll('[data-filter]').forEach(b=>b.addEventListener('click',()=>{filter=b.dataset.filter; document.querySelectorAll('[data-filter]').forEach(t=>t.classList.toggle('selected',t===b));render();}));
 $('search').addEventListener('input',render);
-document.querySelectorAll('[data-page]').forEach(button=>button.addEventListener('click',()=>{document.querySelectorAll('.page').forEach(p=>p.hidden=p.id!=='page-'+button.dataset.page);document.querySelectorAll('.nav').forEach(b=>b.classList.toggle('active',b===button));$('breadcrumb').textContent={rules:'Mail rules',activity:'Scan activity',settings:'Settings'}[button.dataset.page];}));
+function showPage(page) { document.querySelectorAll('.page').forEach(p=>p.hidden=p.id!=='page-'+page);document.querySelectorAll('.nav').forEach(b=>b.classList.toggle('active',b.dataset.page===page));$('breadcrumb').textContent={rules:'Mail rules',activity:'Scan activity',settings:'Settings',accounts:'Accounts'}[page]; }
+document.querySelectorAll('[data-page]').forEach(button=>button.addEventListener('click',()=>showPage(currentAccount?button.dataset.page:'accounts')));
 
 function operators(field) { return field==='flagged' ? [['is','is flagged']] : field==='sender_domain' ? [['is','is domain']] : field==='sender_email' ? [['is','is'],['contains','contains']] : field==='age_hours' ? [['older_than','more than'],['at_most','at most']] : [['contains','contains'],['not_contains','does not contain']]; }
 function addCondition(condition={field:'sender_domain',op:'is',value:''}, target=$('conditions')) {
@@ -103,7 +107,7 @@ function actionHelp() {
   $('conditional-editor').hidden=action!=='conditional';
   $('conditional-editor').querySelectorAll('input,select,button').forEach(el=>el.disabled=action!=='conditional');
   $('action-help').classList.toggle('danger',action==='delete');
-  $('action-help').textContent=action==='conditional'?'Branches can move, keep, delete, or continue. Keep stops later rules; continue allows them to act.':action==='continue'?'Leave the message unchanged here and evaluate the next rule.':action==='delete'?'Matching emails are permanently deleted in live mode. They are not moved to Trash.':action==='keep'?'Leave matching messages in Inbox and stop evaluating later rules.':'Use an existing iCloud folder, such as Store/Amazon.';
+  $('action-help').textContent=action==='conditional'?'Branches can move, keep, delete, or continue. Keep stops later rules; continue allows them to act.':action==='continue'?'Leave the message unchanged here and evaluate the next rule.':action==='delete'?'Matching emails are permanently deleted in live mode. They are not moved to Trash.':action==='keep'?'Leave matching messages in Inbox and stop evaluating later rules.':'Use an existing folder for this account, such as Store/Amazon.';
 }
 function actionEditor(target, action={action:'keep',folder:''}) {
   target.innerHTML='<label class="field">Action<select class="branch-kind"><option value="move">Move to a folder</option><option value="keep">Keep in Inbox</option><option value="delete">Delete permanently</option><option value="continue">Continue to next rule</option></select></label><label class="field branch-folder-label">Destination folder<input class="branch-folder" list="folders" maxlength="255" placeholder="Store/Amazon"></label>';
@@ -142,8 +146,8 @@ $('rule-form').addEventListener('submit',event=>{
   if(editing)draft.rules[draft.rules.findIndex(r=>r.id===editing)]=rule;else draft.rules.push(rule);
   $('rule-dialog').close();render();toast('Rule updated in your draft. Save to apply.');
 });
-$('preview-mode').addEventListener('change',()=>{draft.settings.preview=$('preview-mode').checked;render();});
-$('scan-interval').addEventListener('change',()=>{const minutes=Number($('scan-interval').value);if(!Number.isInteger(minutes)||minutes<1||minutes>1440){toast('Choose 1–1440 whole minutes.');return render();}draft.settings.interval_seconds=minutes*60;render();});
+$('preview-mode').addEventListener('change',()=>{if(!draft||busy)return;draft.settings.preview=$('preview-mode').checked;render();});
+$('scan-interval').addEventListener('change',()=>{if(!draft||busy)return;const minutes=Number($('scan-interval').value);if(!Number.isInteger(minutes)||minutes<1||minutes>1440){toast('Choose 1–1440 whole minutes.');return render();}draft.settings.interval_seconds=minutes*60;render();});
 $('discard').addEventListener('click',()=>{if(busy)return;if(confirm('Discard your unsaved changes?')){draft=clone(saved);error('');render();}});
 $('save').addEventListener('click',async()=>{
   if(busy||!dirty())return;
@@ -153,9 +157,80 @@ $('save').addEventListener('click',async()=>{
   const submitted=clone(draft);
   try{const result=await api('rules',submitted);saved=result;if(JSON.stringify(draft)===JSON.stringify(submitted))draft=clone(result);else draft.revision=result.revision;render();toast('Changes saved. They apply on the next scan.');}catch(e){error(e.message);}finally{busy=false;$('save').disabled=false;}
 });
-async function scanNow(){if(dirty()){toast('Save or discard your changes before scanning.');return;}try{await api('scan',{});toast('Scan queued. The worker will start it shortly.');}catch(e){error(e.message);}}
+async function scanNow(){if(!currentAccount||switching)return;if(dirty()){toast('Save or discard your changes before scanning.');return;}try{await api('scan',{});toast('Scan queued. The worker will start it shortly.');}catch(e){error(e.message);}}
 $('scan-now').addEventListener('click',scanNow);$('activity-scan').addEventListener('click',scanNow);
-$('export-rules').addEventListener('click',()=>{if(!saved)return;const url=URL.createObjectURL(new Blob([JSON.stringify(saved,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='inbox-rules.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);});
+$('export-rules').addEventListener('click',()=>{if(!saved)return;const url=URL.createObjectURL(new Blob([JSON.stringify(saved,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='inbox-rules-'+currentAccount+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);});
 window.addEventListener('beforeunload',e=>{if(dirty()){e.preventDefault();e.returnValue='';}});
-async function poll(){try{status=await api('status');renderStatus();if(!dragId && !['INPUT','SELECT'].includes(document.activeElement?.tagName) && !$('rule-dialog').open)render();}catch(e){error(e.message);}finally{setTimeout(poll,5000);}}
-(async()=>{try{saved=await api('rules');draft=clone(saved);render();poll();}catch(e){error(e.message);}})();
+function renderAccounts() {
+  $('account-select').innerHTML=accountList.map(a=>`<option value="${escapeHTML(a.id)}">${escapeHTML(a.name)}${a.enabled?'':' (paused)'}</option>`).join('') || '<option value="">Add an account</option>';
+  $('account-select').value=currentAccount||'';
+  $('account-select').disabled=!accountList.length||switching;
+  $('account-list').innerHTML=accountList.map(a=>`<article class="panel account-card"><div><h2>${escapeHTML(a.name)}</h2><p>${escapeHTML(a.username)}</p><p class="muted">${escapeHTML(a.host)} · ${a.enabled?'Scanning enabled':'Paused'}${a.id===currentAccount?' · Selected':''}</p></div><div><button class="secondary" data-account-use="${escapeHTML(a.id)}">View rules</button> <button class="secondary" data-account-edit="${escapeHTML(a.id)}">Edit connection</button></div></article>`).join('') || '<div class="panel empty"><h2>Connect your first mailbox</h2><p>Add an account above, test the connection, then create your first rule.</p></div>';
+  $('add-rule').disabled=!currentAccount||switching;
+  $('preview-mode').disabled=!currentAccount||switching;
+  $('scan-interval').disabled=!currentAccount||switching;
+  $('export-rules').disabled=!currentAccount||switching;
+}
+async function loadAccount(id) {
+  if(busy||switching)return;
+  if(dirty()){toast('Save or discard your rule changes before switching accounts.');$('account-select').value=currentAccount;return;}
+  switching=true;busy=true;renderAccounts();
+  try {
+    const [document, activity]=await Promise.all([api('rules',undefined,id),api('status',undefined,id)]);
+    currentAccount=id;saved=document;draft=clone(saved);status=activity;error('');
+    render();renderStatus();
+  } catch(e){error(e.message);} finally{switching=false;busy=false;renderAccounts();renderStatus();}
+}
+$('account-select').addEventListener('change',()=>loadAccount($('account-select').value));
+$('account-list').addEventListener('click',async event=>{
+  const edit=event.target.closest('[data-account-edit]'), use=event.target.closest('[data-account-use]');
+  if(edit)editAccount(accountList.find(a=>a.id===edit.dataset.accountEdit));
+  if(use){await loadAccount(use.dataset.accountUse);if(currentAccount===use.dataset.accountUse)showPage('rules');}
+});
+function editAccount(account) {
+  if(busy||switching)return;
+  accountEditing=account||null;
+  $('account-dialog-title').textContent=account?'Edit account':'Add account';
+  $('account-name').value=account?.name||'';
+  $('account-host').value=account?.host||'imap.mail.me.com';
+  $('account-port').value=account?.port||993;
+  $('account-provider').value=$('account-host').value==='imap.mail.me.com'?'icloud':'custom';
+  $('account-username').value=account?.username||'';
+  $('account-password').value='';$('account-password').required=!account;
+  $('password-hint').textContent=account?'Leave blank to keep the saved password. Re-enter it if changing the server, port, or username.':'Use your provider’s app-specific password. OAuth-only accounts are not supported.';
+  $('account-enabled').checked=account?.enabled??true;$('account-feedback').hidden=true;
+  $('account-dialog').showModal();$('account-name').focus();
+}
+$('add-account').onclick=()=>editAccount();
+$('close-account').onclick=()=>$('account-dialog').close();
+$('account-dialog').addEventListener('close',()=>{$('account-password').value='';accountEditing=null;});
+$('account-provider').onchange=()=>{if($('account-provider').value==='icloud'){$('account-host').value='imap.mail.me.com';$('account-port').value=993;}else{$('account-host').value='';$('account-host').focus();}};
+function accountPayload() {
+  return {id:accountEditing?.id,revision:accountEditing?.revision,name:$('account-name').value.trim(),host:$('account-host').value.trim(),port:Number($('account-port').value),username:$('account-username').value.trim(),password:$('account-password').value,enabled:$('account-enabled').checked};
+}
+async function submitAccount(test) {
+  if(!$('account-form').reportValidity())return;
+  const payload=accountPayload();
+  $('account-form').querySelectorAll('input,select,button').forEach(el=>el.disabled=true);
+  const feedback=$('account-feedback');feedback.hidden=false;feedback.textContent=test?'Testing connection…':'Saving account…';
+  try {
+    const result=await api(test?'accounts/test':'accounts',payload);
+    if(test){feedback.textContent=result.message;feedback.classList.toggle('danger',!result.ok);}
+    else {
+      accountList=(await api('accounts')).accounts;renderAccounts();renderStatus();
+      $('account-dialog').close();toast('Account saved. Changes apply to future scans.');
+      if(!currentAccount){await loadAccount(result.id);showPage('rules');}
+    }
+  }catch(e){feedback.textContent=e.message;feedback.classList.add('danger');}
+  finally{$('account-form').querySelectorAll('input,select,button').forEach(el=>el.disabled=false);}
+}
+$('account-form').addEventListener('submit',event=>{event.preventDefault();submitAccount(false);});
+$('test-account').onclick=()=>submitAccount(true);
+async function poll(){
+  const id=currentAccount;
+  try{
+    if(id&&!switching){const next=await api('status',undefined,id);if(currentAccount===id&&!switching){status=next;renderStatus();if(!dragId&&!['INPUT','SELECT'].includes(document.activeElement?.tagName)&&!$('rule-dialog').open)render();}}
+    if(!id){accountList=(await api('accounts')).accounts;renderAccounts();if(accountList.length)await loadAccount(accountList[0].id);}
+  }catch(e){error(e.message);}finally{setTimeout(poll,5000);}
+}
+(async()=>{try{accountList=(await api('accounts')).accounts;renderAccounts();if(accountList.length)await loadAccount(accountList[0].id);else{$('mode-badge').textContent='No account';showPage('accounts');}poll();}catch(e){error(e.message);}})();

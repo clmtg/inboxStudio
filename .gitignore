@@ -17,3 +17,5 @@ inbox-rules*.json
 __pycache__/
 *.py[cod]
 .DS_Store
+accounts.json
+.accounts.lock

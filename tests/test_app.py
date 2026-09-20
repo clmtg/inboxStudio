@@ -16,6 +16,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'app'))
 import rules
+import accounts
 import server
 import worker
 
@@ -109,6 +110,8 @@ class HTTPTests(unittest.TestCase):
         cls.old_data = rules.DATA
         rules.DATA = Path(cls.directory.name)
         rules.atomic_json(rules.DATA / 'rules.json', defaults())
+        with patch.dict(os.environ, {'IMAP_USERNAME':'fixture@example.com','IMAP_PASSWORD':'fixture-password'}):
+            accounts.initialize(import_legacy=True)
         cls.http = server.ThreadingHTTPServer(('127.0.0.1', 0), server.Handler)
         cls.thread = threading.Thread(target=cls.http.serve_forever, daemon=True)
         cls.thread.start()

@@ -11,7 +11,7 @@ options.subscribe = false
 options.info = false
 
 local account = IMAP {
-    server = 'imap.mail.me.com', port = 993, ssl = 'auto',
+    server = os.getenv('IMAP_HOST') or 'imap.mail.me.com', port = tonumber(os.getenv('IMAP_PORT') or '993'), ssl = 'auto',
     username = assert(os.getenv('IMAP_USERNAME'), 'Missing IMAP_USERNAME'),
     password = assert(os.getenv('IMAP_PASSWORD'), 'Missing IMAP_PASSWORD'),
 }
@@ -21,7 +21,7 @@ for _, name in ipairs(folders) do
     folder_set[name] = true
     print('FOLDER\t' .. name)
 end
-print('Connected to iCloud. Mode: ' .. (dry_run and 'PREVIEW' or 'LIVE'))
+print('Connected to mail server. Mode: ' .. (dry_run and 'PREVIEW' or 'LIVE'))
 local inbox = assert(account.INBOX:select_all(), 'Unable to list Inbox')
 print('INBOX_COUNT\t' .. #inbox)
 local now = os.time()

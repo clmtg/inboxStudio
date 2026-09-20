@@ -113,12 +113,21 @@ def atomic_json(path, data):
             os.unlink(temporary)
 
 
-def initialize():
-    DATA.mkdir(parents=True, exist_ok=True)
-    path = DATA / 'rules.json'
+def directory(account_id='default'):
+    if account_id == 'default':
+        return DATA
+    if not isinstance(account_id, str) or not re.fullmatch(r'[a-f0-9]{32}', account_id):
+        raise ValueError('Invalid account ID')
+    return DATA / 'accounts' / account_id
+
+
+def initialize(account_id='default'):
+    folder = directory(account_id)
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / 'rules.json'
     if not path.exists():
         document = json.loads(DEFAULTS.read_text())
-        mode = os.environ.get('DRY_RUN', 'true')
+        mode = os.environ.get('DRY_RUN', 'true') if account_id == 'default' else 'true'
         if mode not in {'true', 'false'}:
             raise ValueError('DRY_RUN must be true or false')
         document['settings']['preview'] = mode == 'true'
@@ -126,8 +135,8 @@ def initialize():
         atomic_json(path, validate(document))
 
 
-def read():
-    return validate(json.loads((DATA / 'rules.json').read_text()))
+def read(account_id='default'):
+    return validate(json.loads((directory(account_id) / 'rules.json').read_text()))
 
 
 def lua(value):
