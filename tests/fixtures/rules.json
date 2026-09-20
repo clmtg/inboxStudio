@@ -1,0 +1,152 @@
+{
+  "schema": 1,
+  "revision": 0,
+  "settings": {
+    "preview": true,
+    "interval_seconds": 300
+  },
+  "rules": [
+    {
+      "id": "generation-expired",
+      "name": "Expire Example insurance security codes",
+      "enabled": true,
+      "action": "delete",
+      "folder": "",
+      "conditions": [
+        {
+          "field": "sender_domain",
+          "op": "is",
+          "value": "insurance.example.com"
+        },
+        {
+          "field": "subject",
+          "op": "contains",
+          "value": "Votre code de sécurité"
+        },
+        {
+          "field": "age_hours",
+          "op": "older_than",
+          "value": 72
+        }
+      ]
+    },
+    {
+      "id": "generation-keep",
+      "name": "Keep Example insurance security codes",
+      "enabled": true,
+      "action": "keep",
+      "folder": "",
+      "conditions": [
+        {
+          "field": "sender_domain",
+          "op": "is",
+          "value": "insurance.example.com"
+        },
+        {
+          "field": "subject",
+          "op": "contains",
+          "value": "Votre code de sécurité"
+        }
+      ]
+    },
+    {
+      "id": "generation-file",
+      "name": "Example insurance insurance mail",
+      "enabled": true,
+      "action": "move",
+      "folder": "Health/Insurance",
+      "conditions": [
+        {
+          "field": "sender_domain",
+          "op": "is",
+          "value": "insurance.example.com"
+        },
+        {
+          "field": "subject",
+          "op": "not_contains",
+          "value": "Votre code de sécurité"
+        }
+      ]
+    },
+    {
+      "id": "linkedin",
+      "name": "LinkedIn updates",
+      "enabled": true,
+      "action": "move",
+      "folder": "Pro/Linkedin",
+      "conditions": [
+        {
+          "field": "sender_domain",
+          "op": "is",
+          "value": "linkedin.com"
+        }
+      ]
+    },
+    {
+      "id": "amazon",
+      "name": "Amazon mail",
+      "enabled": true,
+      "action": "move",
+      "folder": "Store/Amazon",
+      "conditions": [
+        {
+          "field": "sender_domain",
+          "op": "is",
+          "value": "amazon.fr"
+        }
+      ]
+    },
+    {
+      "id": "leboncoin",
+      "name": "Leboncoin messages",
+      "enabled": true,
+      "action": "move",
+      "folder": "Store/Leboncoin",
+      "conditions": [
+        {
+          "field": "sender_domain",
+          "op": "is",
+          "value": "leboncoin.fr"
+        }
+      ]
+    },
+    {
+      "id": "colisprive",
+      "name": "Amazon deliveries · Colis Privé",
+      "enabled": true,
+      "action": "move",
+      "folder": "Store/Amazon",
+      "conditions": [
+        {
+          "field": "sender_domain",
+          "op": "is",
+          "value": "colisprive.com"
+        },
+        {
+          "field": "subject_or_body",
+          "op": "contains",
+          "value": "Votre colis AMAZON"
+        }
+      ]
+    },
+    {
+      "id": "uber",
+      "name": "Archive older Uber Eats mail",
+      "enabled": true,
+      "action": "move",
+      "folder": "Store/Uber",
+      "conditions": [
+        {
+          "field": "subject",
+          "op": "contains",
+          "value": "Uber Eats"
+        },
+        {
+          "field": "age_hours",
+          "op": "older_than",
+          "value": 72
+        }
+      ]
+    }
+  ]
+}

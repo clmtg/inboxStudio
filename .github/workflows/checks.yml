@@ -1,0 +1,40 @@
+name: Checks
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Lua
+        run: sudo apt-get update && sudo apt-get install -y lua5.4
+      - name: Test engine, API, and worker
+        env:
+          LUA_BIN: lua5.4
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: python3 -m unittest discover -s tests -v
+      - name: Check JavaScript and Lua syntax
+        run: |
+          node --check app/static/app.js
+          luac5.4 -p config.lua
+          luac5.4 -p app/helpers.lua
+      - name: Validate Compose
+        env:
+          IMAP_USERNAME: example@icloud.com
+          IMAP_PASSWORD: dummy-not-a-credential
+          INBOXSTUDIO_HOST: rules.example.com
+        run: docker compose config --quiet
+      - name: Build image
+        run: docker build -t inboxstudio:test .
+      - name: Check image runtime and empty defaults
+        run: >-
+          docker run --rm --read-only --tmpfs /tmp
+          --entrypoint python3 inboxstudio:test -c
+          "import sys; sys.path.insert(0, '/app'); import rules, json; d=rules.validate(json.loads(rules.DEFAULTS.read_text())); assert not d['rules']; assert d['settings']['preview']"
