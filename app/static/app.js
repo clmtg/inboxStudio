@@ -25,7 +25,8 @@ function conditionText(c) {
   return `${fields[c.field]} ${c.op === 'not_contains' ? 'excludes' : 'contains'} “${c.value}”`;
 }
 function outcomes(rule) { return rule.action === 'conditional' ? [...rule.branches, rule.otherwise] : [rule]; }
-function actionText(action) { return action.action === 'move' ? 'Move to ' + action.folder : {keep:'Keep in Inbox',delete:'Delete permanently',continue:'Continue to next rule'}[action.action]; }
+function needsFolder(action) { return action==='move'||action==='trash'; }
+function actionText(action) { return needsFolder(action.action) ? (action.action==='trash'?'Move to Trash · ':'Move to ') + action.folder : {keep:'Keep in Inbox',delete:'Delete permanently',continue:'Continue to next rule'}[action.action]; }
 function branchText(rule) { return rule.action === 'conditional' ? rule.branches.map((b,i)=>(i?'Else if ':'If ')+b.conditions.map(conditionText).join(' + ')+' → '+actionText(b)).concat('Otherwise → '+actionText(rule.otherwise)).join(' · ') : ''; }
 function render() {
   if (!draft) return;
@@ -46,7 +47,7 @@ function render() {
   const currentResults = status.revision === saved.revision && !dirty() ? status.results || [] : [];
   $('rule-list').innerHTML = visible.map(rule => {
     const i = rules.indexOf(rule), count = currentResults.find(r => r.id === rule.id)?.count;
-    const action = rule.action === 'conditional' ? 'If / Otherwise' : rule.action === 'continue' ? 'Continue to next rule' : rule.action === 'move' ? rule.folder : rule.action === 'keep' ? 'Keep in Inbox' : 'Delete permanently';
+    const action = rule.action === 'conditional' ? 'If / Otherwise' : rule.action === 'move' ? rule.folder : actionText(rule);
     return `<article class="rule-card ${rule.enabled ? '' : 'disabled'}" data-id="${escapeHTML(rule.id)}"><div class="priority"><span class="drag-grip" draggable="true" title="Drag to reorder" aria-hidden="true">⠿</span>${String(i+1).padStart(2,'0')}</div><div class="rule-icon ${rule.action}" aria-hidden="true">${rule.action === 'move' ? '↳' : rule.action === 'keep' ? '◇' : rule.action === 'delete' ? '×' : '→'}</div><div><div class="rule-title">${escapeHTML(rule.name)}${count === undefined ? '' : `<span class="match-pill">${count} matched</span>`}</div><div class="rule-description">${rule.conditions.map(c => escapeHTML(conditionText(c))).join(' <span aria-hidden="true">·</span> ')}${rule.action==='conditional'?'<div class="branch-summary">'+escapeHTML(branchText(rule))+'</div>':''}</div></div><div class="rule-action ${rule.action}"><small>${rule.action === 'move' ? 'Move to' : 'Action'}</small>${escapeHTML(action)}</div><div class="card-controls"><div class="order-buttons"><button data-do="up" aria-label="Move ${escapeHTML(rule.name)} up" ${i===0?'disabled':''}>▲</button><button data-do="down" aria-label="Move ${escapeHTML(rule.name)} down" ${i===rules.length-1?'disabled':''}>▼</button></div><button class="toggle" role="switch" aria-label="Enable ${escapeHTML(rule.name)}" aria-checked="${rule.enabled}" data-do="toggle"></button><button class="icon-button" data-do="edit" aria-label="Edit ${escapeHTML(rule.name)}" title="Edit rule">✎</button><button class="icon-button" data-do="remove" aria-label="Remove ${escapeHTML(rule.name)}" title="Remove rule">×</button></div></article>`;
   }).join('') || '<div class="empty">' + (rules.length ? 'No rules match this filter.' : 'Your Inbox is a blank slate. Add your first rule.') + '</div>';
 }
@@ -103,16 +104,16 @@ function addCondition(condition={field:'sender_domain',op:'is',value:''}, target
 }
 function actionHelp() {
   const action=$('rule-action').value;
-  $('folder-field').hidden=action!=='move';$('rule-folder').required=action==='move';
+  $('folder-field').hidden=!needsFolder(action);$('rule-folder').required=needsFolder(action);
   $('conditional-editor').hidden=action!=='conditional';
   $('conditional-editor').querySelectorAll('input,select,button').forEach(el=>el.disabled=action!=='conditional');
   $('action-help').classList.toggle('danger',action==='delete');
-  $('action-help').textContent=action==='conditional'?'Branches can move, keep, delete, or continue. Keep stops later rules; continue allows them to act.':action==='continue'?'Leave the message unchanged here and evaluate the next rule.':action==='delete'?'Matching emails are permanently deleted in live mode. They are not moved to Trash.':action==='keep'?'Leave matching messages in Inbox and stop evaluating later rules.':'Use an existing folder for this account, such as Store/Amazon.';
+  $('action-help').textContent=action==='conditional'?'Branches can move, trash, keep, delete, or continue. Keep stops later rules; continue allows them to act.':action==='continue'?'Leave the message unchanged here and evaluate the next rule.':action==='delete'?'Matching emails are permanently deleted in live mode. They are not moved to Trash.':action==='trash'?'Choose this account’s Trash folder (for iCloud, usually Deleted Messages). Mail stays there until you or your provider empties it.':action==='keep'?'Leave matching messages in Inbox and stop evaluating later rules.':'Use an existing folder for this account, such as Store/Amazon.';
 }
 function actionEditor(target, action={action:'keep',folder:''}) {
-  target.innerHTML='<label class="field">Action<select class="branch-kind"><option value="move">Move to a folder</option><option value="keep">Keep in Inbox</option><option value="delete">Delete permanently</option><option value="continue">Continue to next rule</option></select></label><label class="field branch-folder-label">Destination folder<input class="branch-folder" list="folders" maxlength="255" placeholder="Store/Amazon"></label>';
+  target.innerHTML='<label class="field">Action<select class="branch-kind"><option value="move">Move to a folder</option><option value="keep">Keep in Inbox</option><option value="trash">Move to Trash</option><option value="delete">Delete permanently</option><option value="continue">Continue to next rule</option></select></label><label class="field branch-folder-label">Destination folder<input class="branch-folder" list="folders" maxlength="255" placeholder="Store/Amazon"></label><p class="branch-action-help action-help"></p>';
   const kind=target.querySelector('select'),folder=target.querySelector('input');kind.value=action.action;folder.value=action.folder||'';
-  const sync=()=>{target.querySelector('.branch-folder-label').hidden=kind.value!=='move';folder.required=kind.value==='move';};kind.addEventListener('change',sync);sync();
+  const sync=()=>{target.querySelector('.branch-folder-label').hidden=!needsFolder(kind.value);folder.required=needsFolder(kind.value);folder.placeholder=kind.value==='trash'?'Trash folder, e.g. Deleted Messages':'Store/Amazon';target.querySelector('.branch-action-help').textContent=kind.value==='trash'?'Choose the account’s Trash folder. Mail stays there until you or your provider empties it.':kind.value==='delete'?'Permanently deletes matching mail in live mode.':'';};kind.addEventListener('change',sync);sync();
 }
 function addBranch(branch={conditions:[{field:'age_hours',op:'older_than',value:24}],action:'move',folder:''}) {
   const card=document.createElement('section');card.className='branch-card';
@@ -125,7 +126,7 @@ function addBranch(branch={conditions:[{field:'age_hours',op:'older_than',value:
   $('branches').append(card);
 }
 function readConditions(target) { return [...target.children].map(row=>{const field=row.querySelector('.condition-field').value;return {field,op:row.querySelector('.condition-op').value,value:field==='flagged'?true:field==='age_hours'?Number(row.querySelector('input').value):row.querySelector('input').value.trim()};}); }
-function readAction(target) { const action=target.querySelector('select').value;return {action,folder:action==='move'?target.querySelector('input').value.trim():''}; }
+function readAction(target) { const action=target.querySelector('select').value;return {action,folder:needsFolder(action)?target.querySelector('input').value.trim():''}; }
 $('add-branch').onclick=()=>{if($('branches').children.length<10)addBranch();else toast('Use at most ten branches.');};
 function editRule(rule) {
   editing=rule?.id || null;$('dialog-title').textContent=rule?'Edit rule':'New rule';$('rule-name').value=rule?.name || '';$('rule-action').value=rule?.action || 'move';$('rule-folder').value=rule?.folder || '';$('rule-enabled').checked=rule?.enabled ?? true;$('conditions').replaceChildren();(rule?.conditions || [{field:'sender_domain',op:'is',value:''}]).forEach(c=>addCondition(c));$('branches').replaceChildren();(rule?.action==='conditional'?rule.branches:[{conditions:[{field:'age_hours',op:'older_than',value:24}],action:'move',folder:''}]).forEach(b=>addBranch(b));actionEditor($('otherwise-editor').querySelector('.branch-action'),rule?.otherwise||{action:'keep',folder:''});$('form-error').hidden=true;actionHelp();$('rule-dialog').showModal();$('rule-name').focus();
@@ -138,11 +139,11 @@ $('rule-form').addEventListener('submit',event=>{
   event.preventDefault();
   const conditions=readConditions($('conditions'));
   if(conditions.some(c=>c.value==='' || c.field==='sender_domain' && !/^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,63}$/i.test(c.value))){$('form-error').textContent='Use a valid domain without @, and fill in every condition.';$('form-error').hidden=false;return;}
-  const rule={id:editing || (globalThis.crypto?.randomUUID?.() || `rule-${Date.now()}-${Math.random().toString(36).slice(2)}`),name:$('rule-name').value.trim(),enabled:$('rule-enabled').checked,action:$('rule-action').value,folder:$('rule-action').value==='move'?$('rule-folder').value.trim():'',conditions};
+  const rule={id:editing || (globalThis.crypto?.randomUUID?.() || `rule-${Date.now()}-${Math.random().toString(36).slice(2)}`),name:$('rule-name').value.trim(),enabled:$('rule-enabled').checked,action:$('rule-action').value,folder:needsFolder($('rule-action').value)?$('rule-folder').value.trim():'',conditions};
   if(rule.action==='conditional'){rule.branches=[...$('branches').children].map(card=>({...readAction(card.querySelector('.branch-action')),conditions:readConditions(card.querySelector('.branch-conditions'))}));rule.otherwise=readAction($('otherwise-editor').querySelector('.branch-action'));}
   const allConditions=conditions.concat(rule.branches?.flatMap(b=>b.conditions)||[]);
   if(allConditions.some(c=>c.field==='sender_domain'&&!/^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,63}$/i.test(c.value))){$('form-error').textContent='Use a valid sender domain without @ in every branch.';$('form-error').hidden=false;return;}
-  if(!rule.name || rule.action==='move'&&!rule.folder){$('form-error').textContent='Enter a name and destination folder.';$('form-error').hidden=false;return;}
+  if(!rule.name || needsFolder(rule.action)&&!rule.folder){$('form-error').textContent='Enter a name and destination folder.';$('form-error').hidden=false;return;}
   if(editing)draft.rules[draft.rules.findIndex(r=>r.id===editing)]=rule;else draft.rules.push(rule);
   $('rule-dialog').close();render();toast('Rule updated in your draft. Save to apply.');
 });

@@ -58,9 +58,9 @@ def validate_action(action, conditional=False):
             validate_conditions(branch.get('conditions'))
             validate_action(branch)
         validate_action(action.get('otherwise'))
-    elif kind not in {'move', 'keep', 'delete', 'continue'}:
-        raise ValueError('Choose move, keep, delete, or continue')
-    elif kind == 'move':
+    elif kind not in {'move', 'trash', 'keep', 'delete', 'continue'}:
+        raise ValueError('Choose move, trash, keep, delete, or continue')
+    elif kind in {'move', 'trash'}:
         clean_text(action.get('folder'), 'Destination folder', 255)
         if action['folder'].upper() == 'INBOX':
             raise ValueError('Use keep in Inbox instead of moving to INBOX')

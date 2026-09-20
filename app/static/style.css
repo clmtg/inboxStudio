@@ -94,3 +94,5 @@
   .card-controls {grid-column:1/-1;grid-row:auto;gap:8px}
   .card-controls .order-buttons {margin-right:auto}
 }
+
+.branch-action-help{grid-column:1/-1;margin:0}.rule-icon.trash{background:#fff3dd;color:#977231}@media(max-width:800px){.tabs{grid-template-columns:repeat(3,minmax(0,1fr))}}

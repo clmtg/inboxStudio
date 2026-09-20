@@ -138,7 +138,7 @@ end
 -- Check every selected destination before any mailbox changes.
 for _, rule in ipairs(document.rules) do
     for _, bucket in ipairs(selections[rule.id]) do
-        if #bucket.messages > 0 and bucket.action.action == 'move' then
+        if #bucket.messages > 0 and (bucket.action.action == 'move' or bucket.action.action == 'trash') then
             assert(folder_set[bucket.action.folder], 'Destination folder does not exist: ' .. bucket.action.folder)
         end
     end
@@ -150,7 +150,7 @@ for _, rule in ipairs(document.rules) do
             local action, messages = bucket.action, bucket.messages
             total = total + #messages
             if not dry_run and #messages > 0 then
-                if action.action == 'move' then
+                if action.action == 'move' or action.action == 'trash' then
                     assert(messages:move_messages(account[action.folder]), 'Move failed: ' .. rule.name)
                 elseif action.action == 'delete' then
                     assert(messages:delete_messages(), 'Delete failed: ' .. rule.name)

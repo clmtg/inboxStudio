@@ -13,7 +13,7 @@ for direct public exposure or multiple independent users.
 - Multiple mail accounts with separate rules, schedules, and scan results.
 - Account setup and read-only connection testing in the web UI.
 - Sender domain and sender email matching, subject/body text, received age, and flags.
-- Move to an existing folder, keep in Inbox, permanently delete, or continue.
+- Move to an existing folder, move to Trash, keep in Inbox, permanently delete, or continue.
 - Ordered If / Else if / Otherwise actions within a rule.
 - Preview mode, manual scans, scan interval, results, and readable logs.
 - Draft edits, explicit save, conflict detection, JSON export, and one previous backup.
@@ -85,7 +85,7 @@ verify the sender's identity or email authentication.
 ## Mail safety and limitations
 
 - **Delete permanently** uses IMAPFilter's delete operation, not a move to Trash.
-  Use a move-to-trash-folder rule if you want a recoverable action.
+  Choose **Move to Trash** and select the account’s Trash folder for a recoverable action. For iCloud this is usually `Deleted Messages`. The provider may automatically empty that folder after its retention period.
 - Destination folders must already exist. All selected destinations are checked
   before the scan performs any moves or deletions.
 - Preview mode performs no mailbox mutations.

@@ -243,6 +243,29 @@ class EngineTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertNotIn('MUTATION', result.stdout)
 
+    def test_trash_moves_without_permanent_delete(self):
+        data = conditional_document()
+        rule = data['rules'][0]
+        rule['action'] = 'trash'
+        rule['folder'] = 'Deleted Messages'
+        mail = [{'from':'<hello@apple.com>','subject':'Hello','date':1}]
+        result = self.run_engine(mail, data, folders=['Deleted Messages'])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('MUTATION move 1 Deleted Messages', result.stdout)
+        self.assertNotIn('MUTATION delete', result.stdout)
+        data['settings']['preview'] = True
+        self.assertNotIn('MUTATION', self.run_engine(mail, data, folders=['Deleted Messages']).stdout)
+        data['settings']['preview'] = False
+        result = self.run_engine(mail, data, folders=[])
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn('MUTATION', result.stdout)
+        rule['action'] = 'conditional'
+        rule['branches'][0].update(action='trash', folder='Deleted Messages')
+        result = self.run_engine(mail, data, folders=['Deleted Messages'])
+        self.assertIn('MUTATION move 1 Deleted Messages', result.stdout)
+        rule['branches'][0]['folder'] = ''
+        with self.assertRaises(ValueError): rules.validate(data)
+
     def test_sender_email_exact_and_literal_contains(self):
         data = conditional_document()
         rule = data['rules'][0]
