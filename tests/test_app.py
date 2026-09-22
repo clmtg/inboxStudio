@@ -40,6 +40,19 @@ def conditional_document():
 
 
 class ValidationTests(unittest.TestCase):
+    def test_delayed_move_validation(self):
+        data = defaults()
+        rule = data['rules'][0]
+        rule.update(action='move_after', folder='Store/Amazon', delay_hours=5)
+        self.assertIs(rules.validate(data), data)
+        for delay in [0, -1, 87601, '5', True, None]:
+            rule['delay_hours'] = delay
+            with self.subTest(delay=delay), self.assertRaises(ValueError):
+                rules.validate(data)
+        data = conditional_document()
+        data['rules'][0]['branches'][0].update(action='move_after', delay_hours=5)
+        self.assertIs(rules.validate(data), data)
+
     def test_conditional_validation(self):
         self.assertIsNotNone(rules.validate(conditional_document()))
         for change in [lambda r: r.update(branches=[]),
@@ -205,6 +218,27 @@ LUA = os.environ.get('LUA_BIN') or shutil.which('lua')
 
 @unittest.skipUnless(LUA, 'Set LUA_BIN to run Lua engine tests')
 class EngineTests(unittest.TestCase):
+    def test_delayed_move_waits_until_after_threshold(self):
+        data = defaults()
+        data['settings']['preview'] = False
+        data['rules'] = [{
+            'id':'delayed', 'name':'Delayed', 'enabled':True,
+            'action':'move_after', 'folder':'Store/Amazon', 'delay_hours':5,
+            'conditions':[{'field':'sender_domain','op':'is','value':'example.com'}],
+        }]
+        messages = [
+            {'from':'<old@example.com>','date':1000000-5*3600-1},
+            {'from':'<boundary@example.com>','date':1000000-5*3600},
+            {'from':'<new@example.com>','date':1000000-60},
+            {'from':'<unknown@example.com>'},
+        ]
+        result = self.run_engine(messages, data)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([line for line in result.stdout.splitlines() if line.startswith('MUTATION')],
+                         ['MUTATION move 1 Store/Amazon'])
+        self.assertIn('RULE_RESULT\tdelayed\t1', result.stdout)
+        self.assertIn('Left unchanged due to unreadable conditions: 1', result.stdout)
+
     def test_conditional_age_boundary_keep_and_continue(self):
         data = conditional_document()
         data['rules'].append({'id':'later','name':'Later','enabled':True,'action':'delete',

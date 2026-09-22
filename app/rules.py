@@ -58,12 +58,16 @@ def validate_action(action, conditional=False):
             validate_conditions(branch.get('conditions'))
             validate_action(branch)
         validate_action(action.get('otherwise'))
-    elif kind not in {'move', 'trash', 'keep', 'delete', 'continue'}:
-        raise ValueError('Choose move, trash, keep, delete, or continue')
-    elif kind in {'move', 'trash'}:
+    elif kind not in {'move', 'move_after', 'trash', 'keep', 'delete', 'continue'}:
+        raise ValueError('Choose move, delayed move, trash, keep, delete, or continue')
+    elif kind in {'move', 'move_after', 'trash'}:
         clean_text(action.get('folder'), 'Destination folder', 255)
         if action['folder'].upper() == 'INBOX':
             raise ValueError('Use keep in Inbox instead of moving to INBOX')
+        if kind == 'move_after':
+            delay = action.get('delay_hours')
+            if type(delay) not in {int, float} or not 0 < delay <= 87600:
+                raise ValueError('Move delay must be greater than 0 and at most 87600 hours')
 
 
 def validate_conditions(conditions):

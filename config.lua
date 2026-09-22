@@ -97,6 +97,21 @@ local function matches(message, conditions)
     end
     return true
 end
+
+-- A delayed move is an action with an age gate. Keeping it on the action lets
+-- users delay an otherwise ordinary rule without duplicating an age condition.
+local function action_ready(message, action)
+    if action.action ~= 'move_after' then return true end
+    local mailbox, uid = table.unpack(message)
+    cache[uid] = cache[uid] or {}
+    local cached = cache[uid]
+    if cached.received == nil then
+        cached.received = helpers.received_timestamp(mailbox[uid]:fetch_date()) or false
+    end
+    if not cached.received then return nil end
+    return cached.received < now - action.delay_hours * 3600
+end
+
 local selections = {}
 for _, rule in ipairs(document.rules) do
     local buckets = {}
@@ -129,8 +144,12 @@ for _, message in ipairs(inbox) do
                 end
                 if not selected then skipped=skipped+1; break end
                 local bucket = buckets[selected]
-                table.insert(bucket.messages, message)
-                if bucket.action.action ~= 'continue' then break end
+                local ready = action_ready(message, bucket.action)
+                if ready == nil then skipped=skipped+1; break end
+                if ready then
+                    table.insert(bucket.messages, message)
+                    if bucket.action.action ~= 'continue' then break end
+                end
             end
         end
     end
@@ -138,7 +157,7 @@ end
 -- Check every selected destination before any mailbox changes.
 for _, rule in ipairs(document.rules) do
     for _, bucket in ipairs(selections[rule.id]) do
-        if #bucket.messages > 0 and (bucket.action.action == 'move' or bucket.action.action == 'trash') then
+        if #bucket.messages > 0 and (bucket.action.action == 'move' or bucket.action.action == 'move_after' or bucket.action.action == 'trash') then
             assert(folder_set[bucket.action.folder], 'Destination folder does not exist: ' .. bucket.action.folder)
         end
     end
@@ -150,7 +169,7 @@ for _, rule in ipairs(document.rules) do
             local action, messages = bucket.action, bucket.messages
             total = total + #messages
             if not dry_run and #messages > 0 then
-                if action.action == 'move' or action.action == 'trash' then
+                if action.action == 'move' or action.action == 'move_after' or action.action == 'trash' then
                     assert(messages:move_messages(account[action.folder]), 'Move failed: ' .. rule.name)
                 elseif action.action == 'delete' then
                     assert(messages:delete_messages(), 'Delete failed: ' .. rule.name)

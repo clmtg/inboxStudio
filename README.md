@@ -13,7 +13,7 @@ for direct public exposure or multiple independent users.
 - Multiple mail accounts with separate rules, schedules, and scan results.
 - Account setup and read-only connection testing in the web UI.
 - Sender domain and sender email matching, subject/body text, received age, and flags.
-- Move to an existing folder, move to Trash, keep in Inbox, permanently delete, or continue.
+- Move immediately or after a configurable delay, move to Trash, keep in Inbox, permanently delete, or continue.
 - Ordered If / Else if / Otherwise actions within a rule.
 - Preview mode, manual scans, scan interval, results, and readable logs.
 - Draft edits, explicit save, conflict detection, JSON export, and one previous backup.
@@ -68,6 +68,7 @@ need to build anything.
 - Sender domain `example.com` → move to `Newsletters`.
 - Sender email **is** `alerts@example.com` → keep in Inbox.
 - Sender email **contains** `notifications-` → move to `Notifications`.
+- Sender domain `news.example.com` → move to `Newsletters` after 5 hours.
 - Sender domain `apple.com` → if received more than 24 hours ago, move to `Apple`;
   otherwise keep in Inbox.
 - Flag status **is flagged** → keep in Inbox. Put this rule first to protect
@@ -94,6 +95,8 @@ verify the sender's identity or email authentication.
 - Age is measured from the server's IMAP INTERNALDATE, not time spent in Inbox.
   Exactly 24 hours is not “more than 24 hours”; actions happen on the next scan
   after the threshold.
+- Delayed moves use that same message age and strict boundary. A 5-hour delay
+  moves the message on the first scan after it becomes more than 5 hours old.
 - Unreadable conditions stop evaluation for that message, including Otherwise.
 - Subjects support UTF-8, ASCII, Latin-1, and common Windows-1252 MIME encodings.
   Sender email parsing supports ordinary single mailbox headers; unusual or
