@@ -2,7 +2,10 @@
 
 ## Unreleased
 
-- Complete the historical changelog for versions 0.2.1, 0.2.2, and 0.2.4.
+## 0.2.5
+
+- Open the rule editor with focus on its heading instead of the name field,
+  avoiding an automatic keyboard opening on mobile.
 
 ## 0.2.4
 
