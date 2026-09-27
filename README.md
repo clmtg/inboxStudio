@@ -231,3 +231,14 @@ On the first publication, make the `inboxstudio` container package **Public** in
 GitHub Package settings. GitHub initially creates container packages as private.
 Verify an anonymous image pull before advertising the release as installable.
 A public source repository alone does not make its package public.
+
+### Action timing
+
+Every action (Move, Trash, Delete permanently, Keep in Inbox, and Continue) can
+run immediately or when the email is older than an age entered in minutes.
+This also applies to If / Otherwise branches. For example, choose Delete
+permanently and an age of 34 minutes to delete matching mail on the first scan
+after it is more than 34 minutes old. Age is measured from receipt, not from
+when the rule first matches. While waiting, the message stays in Inbox and
+later rules do not act on it. Unreadable received dates also leave mail untouched.
+Existing Move after a delay rules open as Move with their original age threshold.

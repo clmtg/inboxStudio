@@ -53,6 +53,22 @@ class ValidationTests(unittest.TestCase):
         data['rules'][0]['branches'][0].update(action='move_after', delay_hours=5)
         self.assertIs(rules.validate(data), data)
 
+    def test_timing_validation_for_all_actions(self):
+        for kind in ['move', 'trash', 'delete', 'keep', 'continue']:
+            for location in ['rule', 'branch', 'otherwise']:
+                data = conditional_document()
+                rule = data['rules'][0]
+                action = rule if location == 'rule' else rule['branches'][0] if location == 'branch' else rule['otherwise']
+                action.update(action=kind, folder='Store/Amazon', delay_hours=34/60)
+                with self.subTest(kind=kind, location=location):
+                    rules.validate(data)
+                    for value in [0, -1, 87601, True, None, '34', float('inf'), float('nan')]:
+                        action['delay_hours'] = value
+                        with self.assertRaises(ValueError): rules.validate(data)
+        data = conditional_document()
+        data['rules'][0]['delay_hours'] = 1
+        with self.assertRaises(ValueError): rules.validate(data)
+
     def test_conditional_validation(self):
         self.assertIsNotNone(rules.validate(conditional_document()))
         for change in [lambda r: r.update(branches=[]),
@@ -259,6 +275,30 @@ class EngineTests(unittest.TestCase):
                          ['MUTATION move 1 Store/Amazon'])
         self.assertIn('RULE_RESULT\tdelayed\t1', result.stdout)
         self.assertIn('Left unchanged due to unreadable conditions: 1', result.stdout)
+
+    def test_all_timed_actions_reserve_waiting_mail(self):
+        for kind in ['move', 'move_after', 'trash', 'delete', 'keep', 'continue']:
+            for location in ['rule', 'branch', 'otherwise']:
+                data = conditional_document()
+                rule = data['rules'][0]
+                action = rule if location == 'rule' else rule['branches'][0] if location == 'branch' else rule['otherwise']
+                if location != 'rule':
+                    rule['branches'][0]['conditions'] = [{'field':'subject', 'op':'contains', 'value':'match' if location == 'branch' else 'absent'}]
+                action.update(action=kind, folder='Store/Amazon', delay_hours=34/60)
+                data['rules'].append({'id':'later', 'name':'Later', 'enabled':True,
+                                     'conditions':rule['conditions'], 'action':'delete'})
+                messages = [{'from':'<hello@apple.com>', 'subject':'match', 'date':date}
+                            for date in [1000000-2041, 1000000-2040, 1000000-60, 1000001]]
+                messages.append({'from':'<hello@apple.com>', 'subject':'match'})
+                with self.subTest(kind=kind, location=location):
+                    result = self.run_engine(messages, data)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    expected = [] if kind == 'keep' else ['MUTATION move 1 Store/Amazon'] if kind in ['move', 'move_after', 'trash'] else ['MUTATION delete 1']
+                    self.assertEqual([line for line in result.stdout.splitlines() if line.startswith('MUTATION')], expected)
+                    self.assertIn('RULE_RESULT\tapple\t1', result.stdout)
+                    self.assertIn('Left unchanged due to unreadable conditions: 1', result.stdout)
+                    data['settings']['preview'] = True
+                    self.assertNotIn('MUTATION', self.run_engine(messages, data).stdout)
 
     def test_conditional_age_boundary_keep_and_continue(self):
         data = conditional_document()

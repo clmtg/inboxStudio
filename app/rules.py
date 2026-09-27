@@ -64,10 +64,12 @@ def validate_action(action, conditional=False):
         clean_text(action.get('folder'), 'Destination folder', 255)
         if action['folder'].upper() == 'INBOX':
             raise ValueError('Use keep in Inbox instead of moving to INBOX')
-        if kind == 'move_after':
-            delay = action.get('delay_hours')
-            if type(delay) not in {int, float} or not 0 < delay <= 87600:
-                raise ValueError('Move delay must be greater than 0 and at most 87600 hours')
+    if kind == 'move_after' or 'delay_hours' in action:
+        delay = action.get('delay_hours')
+        if kind == 'conditional':
+            raise ValueError('Set timing on each branch, not on the conditional rule')
+        if type(delay) not in {int, float} or not 0 < delay <= 87600:
+            raise ValueError('Age threshold must be greater than 0 and at most 5256000 minutes')
 
 
 def validate_conditions(conditions):
