@@ -88,8 +88,19 @@ local function match_condition(message, condition)
     if op == 'not_contains' then return not found else return found end
 end
 
--- Unreadable conditions stop processing, including conditional fallbacks.
-local function matches(message, conditions)
+-- Any succeeds on a definite match; otherwise unreadable alternatives block fallbacks.
+-- Keep legacy All short-circuit behavior unchanged.
+local function matches(message, conditions, mode)
+    if mode == 'any' then
+        local unknown = false
+        for _, condition in ipairs(conditions) do
+            local result = match_condition(message, condition)
+            if result == true then return true end
+            if result == nil then unknown = true end
+        end
+        if unknown then return nil end
+        return false
+    end
     for _, condition in ipairs(conditions) do
         local result = match_condition(message, condition)
         if result == nil then return nil end
@@ -128,7 +139,7 @@ local skipped = 0
 for _, message in ipairs(inbox) do
     for _, rule in ipairs(document.rules) do
         if rule.enabled then
-            local matched = matches(message, rule.conditions)
+            local matched = matches(message, rule.conditions, rule.match)
             if matched == nil then skipped=skipped+1; break end
             if matched then
                 local buckets = selections[rule.id]
@@ -136,7 +147,7 @@ for _, message in ipairs(inbox) do
                 if rule.action == 'conditional' then
                     selected = #buckets
                     for i, branch in ipairs(rule.branches) do
-                        local branch_match = matches(message, branch.conditions)
+                        local branch_match = matches(message, branch.conditions, branch.match)
                         if branch_match == nil then selected=nil; break end
                         if branch_match then selected=i; break end
                     end

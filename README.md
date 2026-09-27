@@ -242,3 +242,13 @@ after it is more than 34 minutes old. Age is measured from receipt, not from
 when the rule first matches. While waiting, the message stays in Inbox and
 later rules do not act on it. Unreadable received dates also leave mail untouched.
 Existing Move after a delay rules open as Move with their original age threshold.
+
+### All or Any conditions
+
+Each rule and If / Else-if branch can require **All conditions match (AND)** or
+**Any condition matches (OR)**. Existing rules default to All. For example, Any
+can match a sender domain, subject text, or body text with one action. Branches
+still run in order, with the first matching branch selected. Action timing is
+checked separately, so an OR match cannot bypass the action's age threshold.
+If no alternative definitely matches and one cannot be read, Any leaves the
+message untouched rather than using Otherwise or a later rule.
