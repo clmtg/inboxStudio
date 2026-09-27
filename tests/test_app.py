@@ -239,6 +239,27 @@ class EngineTests(unittest.TestCase):
         self.assertIn('RULE_RESULT\tdelayed\t1', result.stdout)
         self.assertIn('Left unchanged due to unreadable conditions: 1', result.stdout)
 
+    def test_34_minute_delay_waits_until_after_threshold(self):
+        data = defaults()
+        data['settings']['preview'] = False
+        data['rules'] = [{
+            'id':'delayed', 'name':'Delayed', 'enabled':True,
+            'action':'move_after', 'folder':'Store/Amazon', 'delay_hours':34/60,
+            'conditions':[{'field':'sender_domain','op':'is','value':'example.com'}],
+        }]
+        messages = [
+            {'from':'<old@example.com>','date':1000000-34*60-1},
+            {'from':'<boundary@example.com>','date':1000000-34*60},
+            {'from':'<new@example.com>','date':1000000-60},
+            {'from':'<unknown@example.com>'},
+        ]
+        result = self.run_engine(messages, data)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([line for line in result.stdout.splitlines() if line.startswith('MUTATION')],
+                         ['MUTATION move 1 Store/Amazon'])
+        self.assertIn('RULE_RESULT\tdelayed\t1', result.stdout)
+        self.assertIn('Left unchanged due to unreadable conditions: 1', result.stdout)
+
     def test_conditional_age_boundary_keep_and_continue(self):
         data = conditional_document()
         data['rules'].append({'id':'later','name':'Later','enabled':True,'action':'delete',
