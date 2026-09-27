@@ -1,0 +1,3 @@
+#!/bin/sh
+# Reapply the format after the commit editor or a custom merge message.
+exec "$(dirname "$0")/prepare-commit-msg" "$1"

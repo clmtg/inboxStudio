@@ -1,0 +1,38 @@
+#!/usr/bin/env python3
+"""Give local merge commits an explicit source and destination."""
+import pathlib
+import re
+import subprocess
+import sys
+
+
+def git(*args):
+    return subprocess.check_output(['git', *args], text=True).strip()
+
+
+merge_head = pathlib.Path(git('rev-parse', '--git-path', 'MERGE_HEAD'))
+if not merge_head.exists():
+    sys.exit(0)
+destination = git('symbolic-ref', '--quiet', '--short', 'HEAD')
+message_path = pathlib.Path(sys.argv[1])
+message = message_path.read_text()
+# MERGE_MSG keeps Git's original branch names even for a custom commit message.
+original = pathlib.Path(git('rev-parse', '--git-path', 'MERGE_MSG')).read_text()
+subject = original.split('\n', 1)[0]
+sources = re.findall(r"'([^']+)'", subject.split(' into ', 1)[0])
+if not sources:
+    sources = re.findall(r'`([^`]+)`', subject.split(' into ', 1)[0])
+if not sources:
+    # Custom messages may omit the source; resolve each merge parent to a ref.
+    for parent in merge_head.read_text().splitlines():
+        refs = git('for-each-ref', '--points-at', parent, '--format=%(refname:short)',
+                   'refs/heads', 'refs/remotes').splitlines()
+        refs = [ref for ref in refs if ref != destination and not ref.endswith('/HEAD')]
+        local_refs = [ref for ref in refs if ref in git('for-each-ref', '--points-at', parent, '--format=%(refname:short)', 'refs/heads').splitlines()]
+        refs = local_refs or refs
+        if len(refs) != 1:
+            sys.exit('Cannot identify the source branch for this merge. Use a merge message naming it in backticks.')
+        sources.append(refs[0])
+body = message.partition('\n')[2]
+message_path.write_text('Merge ' + ', '.join(f'`{source}`' for source in sources)
+                        + f' into `{destination}`\n' + body)

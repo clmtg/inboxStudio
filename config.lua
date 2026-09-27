@@ -98,10 +98,9 @@ local function matches(message, conditions)
     return true
 end
 
--- A delayed move is an action with an age gate. Keeping it on the action lets
--- users delay an otherwise ordinary rule without duplicating an age condition.
+-- Every action can have an age gate measured from the received timestamp.
 local function action_ready(message, action)
-    if action.action ~= 'move_after' then return true end
+    if action.delay_hours == nil then return true end
     local mailbox, uid = table.unpack(message)
     cache[uid] = cache[uid] or {}
     local cached = cache[uid]
@@ -146,6 +145,7 @@ for _, message in ipairs(inbox) do
                 local bucket = buckets[selected]
                 local ready = action_ready(message, bucket.action)
                 if ready == nil then skipped=skipped+1; break end
+                if not ready then break end -- Reserve waiting mail against later rules.
                 if ready then
                     table.insert(bucket.messages, message)
                     if bucket.action.action ~= 'continue' then break end
