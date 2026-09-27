@@ -69,6 +69,21 @@ class ValidationTests(unittest.TestCase):
         data['rules'][0]['delay_hours'] = 1
         with self.assertRaises(ValueError): rules.validate(data)
 
+    def test_match_mode_validation(self):
+        for location in ['rule', 'branch']:
+            for mode in ['all', 'any', None, True, [], {}, 'or', 'ALL']:
+                data = conditional_document()
+                target = data['rules'][0] if location == 'rule' else data['rules'][0]['branches'][0]
+                target['match'] = mode
+                with self.subTest(location=location, mode=mode):
+                    if mode in ('all', 'any'):
+                        rules.validate(data)
+                    else:
+                        with self.assertRaises(ValueError): rules.validate(data)
+        data = conditional_document()
+        rules.validate(data)
+        self.assertNotIn('match', data['rules'][0])
+
     def test_conditional_validation(self):
         self.assertIsNotNone(rules.validate(conditional_document()))
         for change in [lambda r: r.update(branches=[]),
@@ -193,6 +208,8 @@ class HTTPTests(unittest.TestCase):
     def test_save_conditional_rule_roundtrip(self):
         data = json.loads(self.request('/api/rules')[1])
         rule = conditional_document()['rules'][0]
+        rule['match'] = 'any'
+        rule['branches'][0]['match'] = 'any'
         data['rules'].append(rule)
         self.assertEqual(self.request('/api/rules', data)[0], 200)
         stored = json.loads(self.request('/api/rules')[1])
@@ -299,6 +316,69 @@ class EngineTests(unittest.TestCase):
                     self.assertIn('Left unchanged due to unreadable conditions: 1', result.stdout)
                     data['settings']['preview'] = True
                     self.assertNotIn('MUTATION', self.run_engine(messages, data).stdout)
+
+    def test_any_and_all_conditions_with_action_timing(self):
+        data = conditional_document()
+        rule = data['rules'][0]
+        rule.update(action='delete', match='any', delay_hours=34/60)
+        rule['conditions'] = [{'field':'sender_domain','op':'is','value':'apple.com'},
+                              {'field':'subject','op':'contains','value':'invoice'},
+                              {'field':'body','op':'contains','value':'receipt'}]
+        messages = [
+            {'from':'<hello@apple.com>', 'subject':'hello', 'body':'hello', 'date':1},
+            {'from':'<hello@example.com>', 'subject':'invoice', 'body':'hello', 'date':1},
+            {'from':'<hello@example.com>', 'subject':'hello', 'body':'receipt', 'date':1},
+            {'from':'<hello@example.com>', 'subject':'hello', 'body':'hello', 'date':1},
+            {'from':'<hello@apple.com>', 'subject':'invoice', 'body':'receipt', 'date':1},
+            {'from':'<hello@apple.com>', 'subject':'invoice', 'body':'receipt', 'date':1000000-2040},
+        ]
+        for mode, expected in [('any', [1,2,3,5]), ('all', [5]), (None, [5])]:
+            if mode is None: rule.pop('match')
+            else: rule['match'] = mode
+            with self.subTest(mode=mode):
+                result = self.run_engine(messages, data)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual([line for line in result.stdout.splitlines() if line.startswith('MUTATION')],
+                                 ['MUTATION delete %d' % i for i in expected])
+        rule['match'] = 'any'
+        data['settings']['preview'] = True
+        self.assertNotIn('MUTATION', self.run_engine(messages, data).stdout)
+
+    def test_any_branch_order_otherwise_and_unknown(self):
+        data = conditional_document()
+        rule = data['rules'][0]
+        branch = rule['branches'][0]
+        branch.update(match='any')
+        branch['conditions'] = [{'field':'age_hours','op':'older_than','value':24},
+                                {'field':'subject','op':'contains','value':'invoice'}]
+        rule['branches'].append({'conditions':[{'field':'subject','op':'contains','value':'invoice'}], 'action':'delete'})
+        rule['otherwise'] = {'action':'delete'}
+        messages = [
+            {'from':'<hello@apple.com>', 'subject':'invoice'},
+            {'from':'<hello@apple.com>', 'subject':'hello'},
+            {'from':'<hello@apple.com>', 'subject':'hello', 'date':1000000-60},
+            {'from':'<hello@apple.com>', 'subject':'hello', 'date':1},
+        ]
+        for reverse in [False, True]:
+            if reverse: branch['conditions'].reverse()
+            result = self.run_engine(messages, data)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(set(line for line in result.stdout.splitlines() if line.startswith('MUTATION')),
+                             {'MUTATION move 1 Store/Amazon', 'MUTATION move 4 Store/Amazon', 'MUTATION delete 3'})
+            self.assertIn('Left unchanged due to unreadable conditions: 1', result.stdout)
+
+    def test_any_unknown_blocks_later_rules(self):
+        data = conditional_document()
+        rule = data['rules'][0]
+        rule.update(action='keep', match='any')
+        rule['conditions'] = [{'field':'age_hours','op':'older_than','value':24},
+                              {'field':'subject','op':'contains','value':'invoice'}]
+        data['rules'].append({'id':'later','name':'Later','enabled':True,'action':'delete',
+                              'conditions':[{'field':'sender_domain','op':'is','value':'apple.com'}]})
+        result = self.run_engine([{'from':'<hello@apple.com>', 'subject':'hello'}], data)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn('MUTATION', result.stdout)
+        self.assertIn('Left unchanged due to unreadable conditions: 1', result.stdout)
 
     def test_conditional_age_boundary_keep_and_continue(self):
         data = conditional_document()

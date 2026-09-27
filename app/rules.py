@@ -37,7 +37,7 @@ def validate(document):
         clean_text(rule.get('name'), 'Rule name', 120)
         if type(rule.get('enabled')) is not bool:
             raise ValueError('Invalid enabled setting')
-        validate_conditions(rule.get('conditions'))
+        validate_conditions(rule.get('conditions'), rule.get('match', 'all'))
         validate_action(rule, conditional=True)
     # Reject unknown, non-JSON objects and excessive nesting before persistence.
     json.dumps(document, allow_nan=False)
@@ -55,7 +55,7 @@ def validate_action(action, conditional=False):
         for branch in branches:
             if not isinstance(branch, dict):
                 raise ValueError('Invalid branch')
-            validate_conditions(branch.get('conditions'))
+            validate_conditions(branch.get('conditions'), branch.get('match', 'all'))
             validate_action(branch)
         validate_action(action.get('otherwise'))
     elif kind not in {'move', 'move_after', 'trash', 'keep', 'delete', 'continue'}:
@@ -72,7 +72,9 @@ def validate_action(action, conditional=False):
             raise ValueError('Age threshold must be greater than 0 and at most 5256000 minutes')
 
 
-def validate_conditions(conditions):
+def validate_conditions(conditions, mode='all'):
+    if mode not in ('all', 'any'):
+        raise ValueError('Choose all or any conditions')
     if not isinstance(conditions, list) or not 1 <= len(conditions) <= 10:
         raise ValueError('Each rule needs 1–10 conditions')
     for condition in conditions:
