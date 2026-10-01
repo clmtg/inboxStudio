@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Delayed Move to a folder actions now move already-read emails on the next
+  scan, including If / Otherwise branches and existing delayed-move rules.
+  Unread emails still wait for the age threshold.
+
 - Open the rule editor with focus on its heading instead of the name field,
   avoiding an automatic keyboard opening on mobile.
 

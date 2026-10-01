@@ -317,6 +317,57 @@ class EngineTests(unittest.TestCase):
                     data['settings']['preview'] = True
                     self.assertNotIn('MUTATION', self.run_engine(messages, data).stdout)
 
+    def test_read_mail_bypasses_only_move_timing(self):
+        for kind in ['move', 'move_after', 'trash', 'delete', 'keep', 'continue']:
+            for location in ['rule', 'branch', 'otherwise']:
+                for preview in [False, True]:
+                    data = conditional_document()
+                    data['settings']['preview'] = preview
+                    rule = data['rules'][0]
+                    action = rule if location == 'rule' else rule['branches'][0] if location == 'branch' else rule['otherwise']
+                    if location != 'rule':
+                        rule['branches'][0]['conditions'] = [{'field':'subject', 'op':'contains', 'value':'match' if location == 'branch' else 'absent'}]
+                    action.update(action=kind, folder='Store/Amazon', delay_hours=1)
+                    data['rules'].append({'id':'later', 'name':'Later', 'enabled':True,
+                                         'conditions':rule['conditions'], 'action':'delete'})
+                    messages = [
+                        {'date':999940, 'flags':['\\Seen']},
+                        {'date':996400, 'flags':['\\sEeN']},
+                        {'flags':['\\Seen']},
+                        {'date':999940, 'flags':[]},
+                        {'date':999940, 'flags':['\\Flagged']},
+                        {'date':999940, 'flags':False},
+                        {'date':996399, 'flags':False},
+                        {'flags':False},
+                    ]
+                    for message in messages:
+                        message.update({'from':'<hello@apple.com>', 'subject':'match'})
+                    with self.subTest(kind=kind, location=location, preview=preview):
+                        result = self.run_engine(messages, data)
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        moves = kind in ['move', 'move_after']
+                        ids = [1, 2, 3, 7] if moves else [7]
+                        expected = [] if preview or kind == 'keep' else [
+                            f'MUTATION move {uid} Store/Amazon' if kind in ['move', 'move_after', 'trash'] else f'MUTATION delete {uid}'
+                            for uid in ids]
+                        self.assertEqual([line for line in result.stdout.splitlines() if line.startswith('MUTATION')], expected)
+                        self.assertIn(f'RULE_RESULT\tapple\t{len(ids)}', result.stdout)
+                        self.assertIn(f'RULE_RESULT\tlater\t{1 if kind == "continue" else 0}', result.stdout)
+
+    def test_read_mail_still_requires_rule_and_branch_conditions(self):
+        data = conditional_document()
+        rule = data['rules'][0]
+        rule['branches'][0]['delay_hours'] = 1
+        messages = [
+            {'from':'<hello@apple.com>', 'date':999940, 'flags':['\\Seen']},
+            {'from':'<hello@elsewhere.com>', 'date':1, 'flags':['\\Seen']},
+            {'from':'<hello@apple.com>', 'flags':['\\Seen']},
+        ]
+        result = self.run_engine(messages, data)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn('MUTATION', result.stdout)
+        self.assertIn('Left unchanged due to unreadable conditions: 1', result.stdout)
+
     def test_any_and_all_conditions_with_action_timing(self):
         data = conditional_document()
         rule = data['rules'][0]

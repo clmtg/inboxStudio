@@ -115,6 +115,13 @@ local function action_ready(message, action)
     local mailbox, uid = table.unpack(message)
     cache[uid] = cache[uid] or {}
     local cached = cache[uid]
+    -- Read mail can leave Inbox on the next scan without waiting for its age.
+    if action.action == 'move' or action.action == 'move_after' then
+        if cached.flags == nil then cached.flags = mailbox[uid]:fetch_flags() or false end
+        for _, flag in ipairs(cached.flags or {}) do
+            if flag:lower() == '\\seen' then return true end
+        end
+    end
     if cached.received == nil then
         cached.received = helpers.received_timestamp(mailbox[uid]:fetch_date()) or false
     end
