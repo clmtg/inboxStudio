@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.7
+
+- Explain waiting actions in scan logs, including whether the server reports
+  mail as unread or read status is unavailable. Show how many emails reached
+  each rule, matched its conditions, or could not be evaluated.
+
 ## 0.2.6
 
 - Delayed Move to a folder actions now move already-read emails on the next
