@@ -352,7 +352,34 @@ class EngineTests(unittest.TestCase):
                             for uid in ids]
                         self.assertEqual([line for line in result.stdout.splitlines() if line.startswith('MUTATION')], expected)
                         self.assertIn(f'RULE_RESULT\tapple\t{len(ids)}', result.stdout)
+                        if moves:
+                            self.assertIn('waiting for age: 3 (server reports unread: 2; read status unavailable: 1)', result.stdout)
+                        self.assertIn('Apple: evaluated 8; conditions matched 8;', result.stdout)
                         self.assertIn(f'RULE_RESULT\tlater\t{1 if kind == "continue" else 0}', result.stdout)
+
+    def test_diagnostics_explain_earlier_waiting_rule(self):
+        data = defaults()
+        data['settings']['preview'] = True
+        condition = [{'field':'sender_domain', 'op':'is', 'value':'cdc-habitat.fr'}]
+        data['rules'] = [
+            {'id':'first', 'name':'First', 'enabled':True, 'conditions':condition,
+             'action':'keep', 'delay_hours':5},
+            {'id':'cdc', 'name':'Cdc Habitat', 'enabled':True, 'conditions':condition,
+             'action':'move', 'folder':'Store/Amazon', 'delay_hours':5},
+        ]
+        messages = [{'from':'<noreply@cdc-habitat.fr>', 'date':999940, 'flags':['\\Seen']},
+                    {'from':'<hello@example.com>', 'date':999940}]
+        result = self.run_engine(messages, data)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn('MUTATION', result.stdout)
+        self.assertIn('First: evaluated 2; conditions matched 1; unreadable 0', result.stdout)
+        self.assertIn('waiting for age: 1 (server reports unread: 0; read status unavailable: 0)', result.stdout)
+        self.assertIn('Cdc Habitat: evaluated 1; conditions matched 0; unreadable 0', result.stdout)
+        data['rules'].pop(0)
+        result = self.run_engine(messages, data)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('Cdc Habitat: 1 messages · move (preview only)', result.stdout)
+        self.assertIn('Cdc Habitat: evaluated 2; conditions matched 1; unreadable 0', result.stdout)
 
     def test_read_mail_still_requires_rule_and_branch_conditions(self):
         data = conditional_document()
