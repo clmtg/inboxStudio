@@ -48,7 +48,10 @@ setmetatable(inbox, {__index = function(_, uid)
         fetch_field = function(_, name) return message[name] end,
         fetch_date = function() return tostring(message.date or 'invalid') end,
         fetch_body = function() return message.body or '' end,
-        fetch_flags = function() return message.flags or {} end,
+        fetch_flags = function()
+            if message.flags == false then return nil end
+            return message.flags or {}
+        end,
     }
 end})
 function IMAP()

@@ -96,7 +96,8 @@ verify the sender's identity or email authentication.
   Exactly 24 hours is not “more than 24 hours”; actions happen on the next scan
   after the threshold.
 - Delayed moves use that same message age and strict boundary. A 5-hour delay
-  moves the message on the first scan after it becomes more than 5 hours old.
+  moves unread mail on the first scan after it becomes more than 5 hours old.
+  Already-read mail moves on the next scan without waiting for that age.
 - Unreadable conditions stop evaluation for that message, including Otherwise.
 - Subjects support UTF-8, ASCII, Latin-1, and common Windows-1252 MIME encodings.
   Sender email parsing supports ordinary single mailbox headers; unusual or
@@ -240,7 +241,15 @@ This also applies to If / Otherwise branches. For example, choose Delete
 permanently and an age of 34 minutes to delete matching mail on the first scan
 after it is more than 34 minutes old. Age is measured from receipt, not from
 when the rule first matches. While waiting, the message stays in Inbox and
-later rules do not act on it. Unreadable received dates also leave mail untouched.
+later rules do not act on it. If the age cannot be determined, mail stays untouched
+unless the read-mail exception below applies.
+
+For Move to a folder (including existing Move after a delay rules), read mail
+bypasses the action delay and moves on the next scan. Unread mail still waits
+for the age threshold. This applies to If / Otherwise actions too. A confirmed
+read flag is enough even if the received date is unavailable; if flags cannot
+be read, the normal age check applies. Rule and branch conditions must still
+match. Trash, Delete, Keep, and Continue retain their age thresholds.
 Existing Move after a delay rules open as Move with their original age threshold.
 
 ### All or Any conditions
