@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.2.6
+
+- Delayed Move to a folder actions now move already-read emails on the next
+  scan, including If / Otherwise branches and existing delayed-move rules.
+  Unread emails still wait for the age threshold.
 
 ## 0.2.5
 
