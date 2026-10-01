@@ -115,9 +115,11 @@ local function action_ready(message, action)
     local mailbox, uid = table.unpack(message)
     cache[uid] = cache[uid] or {}
     local cached = cache[uid]
+    local waiting_reason = 'age'
     -- Read mail can leave Inbox on the next scan without waiting for its age.
     if action.action == 'move' or action.action == 'move_after' then
         if cached.flags == nil then cached.flags = mailbox[uid]:fetch_flags() or false end
+        waiting_reason = cached.flags and 'unread' or 'flags_unknown'
         for _, flag in ipairs(cached.flags or {}) do
             if flag:lower() == '\\seen' then return true end
         end
@@ -126,11 +128,13 @@ local function action_ready(message, action)
         cached.received = helpers.received_timestamp(mailbox[uid]:fetch_date()) or false
     end
     if not cached.received then return nil end
-    return cached.received < now - action.delay_hours * 3600
+    return cached.received < now - action.delay_hours * 3600, waiting_reason
 end
 
 local selections = {}
+local diagnostics = {}
 for _, rule in ipairs(document.rules) do
+    diagnostics[rule.id] = {evaluated=0, matched=0, unreadable=0}
     local buckets = {}
     if rule.action == 'conditional' then
         for i, branch in ipairs(rule.branches) do
@@ -140,15 +144,21 @@ for _, rule in ipairs(document.rules) do
     else
         buckets[1] = {action=rule, messages=inbox-inbox, label=''}
     end
+    for _, bucket in ipairs(buckets) do
+        bucket.waiting = {age=0, unread=0, flags_unknown=0}
+    end
     selections[rule.id] = buckets
 end
 local skipped = 0
 for _, message in ipairs(inbox) do
     for _, rule in ipairs(document.rules) do
         if rule.enabled then
+            local stats = diagnostics[rule.id]
+            stats.evaluated = stats.evaluated + 1
             local matched = matches(message, rule.conditions, rule.match)
-            if matched == nil then skipped=skipped+1; break end
+            if matched == nil then stats.unreadable=stats.unreadable+1; skipped=skipped+1; break end
             if matched then
+                stats.matched = stats.matched + 1
                 local buckets = selections[rule.id]
                 local selected = 1
                 if rule.action == 'conditional' then
@@ -159,11 +169,14 @@ for _, message in ipairs(inbox) do
                         if branch_match then selected=i; break end
                     end
                 end
-                if not selected then skipped=skipped+1; break end
+                if not selected then stats.unreadable=stats.unreadable+1; skipped=skipped+1; break end
                 local bucket = buckets[selected]
-                local ready = action_ready(message, bucket.action)
-                if ready == nil then skipped=skipped+1; break end
-                if not ready then break end -- Reserve waiting mail against later rules.
+                local ready, reason = action_ready(message, bucket.action)
+                if ready == nil then stats.unreadable=stats.unreadable+1; skipped=skipped+1; break end
+                if not ready then
+                    bucket.waiting[reason] = bucket.waiting[reason] + 1
+                    break -- Reserve waiting mail against later rules.
+                end
                 if ready then
                     table.insert(bucket.messages, message)
                     if bucket.action.action ~= 'continue' then break end
@@ -194,9 +207,18 @@ for _, rule in ipairs(document.rules) do
                 end
             end
             local label = rule.name .. (bucket.label ~= '' and ' / ' .. bucket.label or '')
-            print(string.format('%s: %d messages · %s%s', label, #messages, action.action,
-                dry_run and ' (preview only)' or ''))
+            local waiting = bucket.waiting
+            local detail = ''
+            if waiting.age + waiting.unread + waiting.flags_unknown > 0 then
+                detail = string.format(' · waiting for age: %d (server reports unread: %d; read status unavailable: %d)',
+                    waiting.age + waiting.unread + waiting.flags_unknown, waiting.unread, waiting.flags_unknown)
+            end
+            print(string.format('%s: %d messages · %s%s%s', label, #messages, action.action,
+                dry_run and ' (preview only)' or '', detail))
         end
+        local stats = diagnostics[rule.id]
+        print(string.format('%s: evaluated %d; conditions matched %d; unreadable %d',
+            rule.name, stats.evaluated, stats.matched, stats.unreadable))
         print('RULE_RESULT\t' .. rule.id .. '\t' .. total)
     end
 end
