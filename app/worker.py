@@ -33,11 +33,22 @@ def scan(document, account=None):
     account_id = account['id'] if account else 'default'
     snapshot = '/tmp/active-rules.lua'
     rules.render(document, snapshot)
+    read_path = rules.directory(account_id) / 'read-state.json'
+    identity = [account['host'], account['port'], account['username']] if account else [
+        os.environ.get('IMAP_HOST'), os.environ.get('IMAP_PORT'), os.environ.get('IMAP_USERNAME')]
+    try:
+        saved_reads = json.loads(read_path.read_text())
+        previous_reads = saved_reads['messages'] if saved_reads['account'] == identity else {}
+    except (OSError, ValueError, KeyError, TypeError):
+        previous_reads = {}
+    read_snapshot = '/tmp/active-read-state.lua'
+    Path(read_snapshot).write_text('return ' + rules.lua(previous_reads) + '\n')
+    observed_reads = {}
     started = time.time()
     status = {'state': 'running', 'started_at': started, 'revision': document['revision'],
               'preview': document['settings']['preview'], 'results': [], 'folders': [], 'logs': [], 'heartbeat_at': started}
     status_path = rules.directory(account_id) / 'status.json'
-    environment = {**os.environ, 'RULES_FILE': snapshot}
+    environment = {**os.environ, 'RULES_FILE': snapshot, 'READ_STATE_FILE': read_snapshot}
     if account:
         environment.update(IMAP_HOST=account['host'], IMAP_PORT=str(account['port']),
                            IMAP_USERNAME=account['username'], IMAP_PASSWORD=account['password'])
@@ -56,6 +67,10 @@ def scan(document, account=None):
         secret = environment.get('IMAP_PASSWORD')
         if secret:
             line = line.replace(secret, '[redacted]')
+        if line.startswith('READ_STATE\t'):
+            _, key, timestamp = line.split('\t')
+            observed_reads[key] = int(timestamp)
+            return
         if line.startswith('FOLDER\t'):
             status['folders'].append(line.split('\t', 1)[1])
             return  # Internal folder metadata for the UI, not a log entry.
@@ -102,6 +117,8 @@ def scan(document, account=None):
         if child.poll() is None:
             child.kill()
             child.wait()
+    if code == 0 and not stopping and not timed_out:
+        rules.atomic_json(read_path, {'account': identity, 'messages': observed_reads})
     status.update(state='success' if code == 0 and not stopping and not timed_out else 'error',
                   finished_at=time.time(), heartbeat_at=time.time(), exit_code=code)
     if timed_out:

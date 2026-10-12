@@ -26,6 +26,27 @@ local inbox = assert(account.INBOX:select_all(), 'Unable to list Inbox')
 print('INBOX_COUNT\t' .. #inbox)
 local now = os.time()
 local cache = {}
+local previous_reads = os.getenv('READ_STATE_FILE') and dofile(os.getenv('READ_STATE_FILE')) or {}
+-- Observe every Inbox message so rule edits do not reset an existing read timer.
+-- Include immutable message metadata to avoid carrying a timer onto a reused UID.
+for _, message in ipairs(inbox) do
+    local mailbox, uid = table.unpack(message)
+    local flags = mailbox[uid]:fetch_flags() or false
+    local cached = {flags=flags}
+    cache[uid] = cached
+    for _, flag in ipairs(flags or {}) do
+        if flag:lower() == '\\seen' then
+            local identity = tostring(uid) .. ':' .. tostring(mailbox[uid]:fetch_date()) .. ':' ..
+                tostring(mailbox[uid]:fetch_field('message-id'))
+            local key = identity:gsub('.', function(c) return string.format('%02x', c:byte()) end)
+            local first_seen = previous_reads[key]
+            if type(first_seen) ~= 'number' or first_seen > now then first_seen = now end
+            cached.read_since = first_seen
+            print('READ_STATE\t' .. key .. '\t' .. first_seen)
+            break
+        end
+    end
+end
 
 local function literal_pattern(value)
     value = value:gsub('\194\160', ' ')
@@ -116,12 +137,12 @@ local function action_ready(message, action)
     cache[uid] = cache[uid] or {}
     local cached = cache[uid]
     local waiting_reason = 'age'
-    -- Read mail can leave Inbox on the next scan without waiting for its age.
+    -- Read mail must finish its grace period, even if its age threshold has passed.
     if action.action == 'move' or action.action == 'move_after' then
         if cached.flags == nil then cached.flags = mailbox[uid]:fetch_flags() or false end
         waiting_reason = cached.flags and 'unread' or 'flags_unknown'
         for _, flag in ipairs(cached.flags or {}) do
-            if flag:lower() == '\\seen' then return true end
+            if flag:lower() == '\\seen' then return now - cached.read_since > 20 * 60, 'read_grace' end
         end
     end
     if cached.received == nil then
@@ -145,7 +166,7 @@ for _, rule in ipairs(document.rules) do
         buckets[1] = {action=rule, messages=inbox-inbox, label=''}
     end
     for _, bucket in ipairs(buckets) do
-        bucket.waiting = {age=0, unread=0, flags_unknown=0}
+        bucket.waiting = {age=0, unread=0, flags_unknown=0, read_grace=0}
     end
     selections[rule.id] = buckets
 end
@@ -212,6 +233,9 @@ for _, rule in ipairs(document.rules) do
             if waiting.age + waiting.unread + waiting.flags_unknown > 0 then
                 detail = string.format(' · waiting for age: %d (server reports unread: %d; read status unavailable: %d)',
                     waiting.age + waiting.unread + waiting.flags_unknown, waiting.unread, waiting.flags_unknown)
+            end
+            if waiting.read_grace > 0 then
+                detail = detail .. string.format(' · waiting for 20 minutes since first observed read: %d', waiting.read_grace)
             end
             print(string.format('%s: %d messages · %s%s%s', label, #messages, action.action,
                 dry_run and ' (preview only)' or '', detail))

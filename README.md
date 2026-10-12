@@ -97,7 +97,8 @@ verify the sender's identity or email authentication.
   after the threshold.
 - Delayed moves use that same message age and strict boundary. A 5-hour delay
   moves unread mail on the first scan after it becomes more than 5 hours old.
-  Already-read mail moves on the next scan without waiting for that age.
+  Read mail waits more than 20 minutes from the first scan observing it as read,
+  even if its age threshold has passed.
 - Unreadable conditions stop evaluation for that message, including Otherwise.
 - Subjects support UTF-8, ASCII, Latin-1, and common Windows-1252 MIME encodings.
   Sender email parsing supports ordinary single mailbox headers; unusual or
@@ -245,7 +246,10 @@ later rules do not act on it. If the age cannot be determined, mail stays untouc
 unless the read-mail exception below applies.
 
 For Move to a folder (including existing Move after a delay rules), read mail
-bypasses the action delay and moves on the next scan. Unread mail still waits
+moves only after more than 20 minutes since a scan first observed it as read,
+even if the action age threshold has already passed. IMAP does not expose the
+time a message was opened, so this timer starts conservatively at detection
+and persists across worker restarts. Observing a message as unread resets it. Unread mail still waits
 for the age threshold. This applies to If / Otherwise actions too. A confirmed
 read flag is enough even if the received date is unavailable; if flags cannot
 be read, the normal age check applies. Rule and branch conditions must still
