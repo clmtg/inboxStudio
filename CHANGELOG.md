@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Timed folder moves now wait more than 20 minutes after first observing mail
+  as read, even when its age threshold has passed. Persist timers across scans
+  and restarts; unread mail continues to use the configured age delay.
+
 ## 0.2.7
 
 - Explain waiting actions in scan logs, including whether the server reports
