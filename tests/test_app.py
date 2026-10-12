@@ -233,6 +233,25 @@ class WorkerTests(unittest.TestCase):
                 worker.scan(defaults())
                 return json.loads((Path(directory) / 'status.json').read_text())
 
+    def test_read_state_is_persisted_and_passed_to_next_scan(self):
+        with tempfile.TemporaryDirectory() as directory:
+            script = Path(directory) / 'fake_filter.py'
+            script.write_text("print('READ_STATE\\tabc123\\t1000000')\n")
+            real_popen = subprocess.Popen
+            snapshots = []
+            def spawn(_command, **kwargs):
+                snapshots.append(Path(kwargs['env']['READ_STATE_FILE']).read_text())
+                return real_popen([sys.executable, str(script)], **kwargs)
+            with patch.object(rules, 'DATA', Path(directory)), patch.object(worker.subprocess, 'Popen', spawn):
+                worker.scan(defaults())
+                worker.scan(defaults())
+            self.assertEqual(snapshots[0], 'return {}\n')
+            self.assertEqual(snapshots[1], 'return ' + rules.lua({'abc123':1000000}) + '\n')
+            saved = json.loads((Path(directory) / 'read-state.json').read_text())
+            self.assertEqual(saved['messages'], {'abc123':1000000})
+            status = json.loads((Path(directory) / 'status.json').read_text())
+            self.assertFalse(any('READ_STATE' in line for line in status['logs']))
+
     def test_scan_status_and_results(self):
         status = self.run_fake_scan(0)
         self.assertEqual(status['state'], 'success')
@@ -317,7 +336,7 @@ class EngineTests(unittest.TestCase):
                     data['settings']['preview'] = True
                     self.assertNotIn('MUTATION', self.run_engine(messages, data).stdout)
 
-    def test_read_mail_bypasses_only_move_timing(self):
+    def test_newly_read_mail_waits_only_for_timed_moves(self):
         for kind in ['move', 'move_after', 'trash', 'delete', 'keep', 'continue']:
             for location in ['rule', 'branch', 'otherwise']:
                 for preview in [False, True]:
@@ -346,7 +365,7 @@ class EngineTests(unittest.TestCase):
                         result = self.run_engine(messages, data)
                         self.assertEqual(result.returncode, 0, result.stderr)
                         moves = kind in ['move', 'move_after']
-                        ids = [1, 2, 3, 7] if moves else [7]
+                        ids = [7]
                         expected = [] if preview or kind == 'keep' else [
                             f'MUTATION move {uid} Store/Amazon' if kind in ['move', 'move_after', 'trash'] else f'MUTATION delete {uid}'
                             for uid in ids]
@@ -356,6 +375,39 @@ class EngineTests(unittest.TestCase):
                             self.assertIn('waiting for age: 3 (server reports unread: 2; read status unavailable: 1)', result.stdout)
                         self.assertIn('Apple: evaluated 8; conditions matched 8;', result.stdout)
                         self.assertIn(f'RULE_RESULT\tlater\t{1 if kind == "continue" else 0}', result.stdout)
+
+    def test_read_grace_persists_and_resets(self):
+        data = defaults()
+        data['settings']['preview'] = False
+        data['rules'] = [{'id':'move', 'name':'Move', 'enabled':True,
+                         'conditions':[{'field':'sender_domain','op':'is','value':'example.com'}],
+                         'action':'move', 'folder':'Store/Amazon', 'delay_hours':5}]
+        messages = [{'from':'<hello@example.com>', 'date':1, 'flags':['\\Seen']}]
+        def scan(now, state=None):
+            result = self.run_engine(messages, data, read_state=state, now=now)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            observed = {}
+            for line in result.stdout.splitlines():
+                if line.startswith('READ_STATE\t'):
+                    _, key, timestamp = line.split('\t')
+                    observed[key] = int(timestamp)
+            return result.stdout, observed
+        output, state = scan(1000000)
+        self.assertNotIn('MUTATION', output)
+        self.assertTrue(state)
+        output, state = scan(1001200, state)
+        self.assertNotIn('MUTATION', output)
+        output, state = scan(1001201, state)
+        self.assertIn('MUTATION move 1 Store/Amazon', output)
+        messages[0]['flags'] = []
+        _, state = scan(1001300, state)
+        self.assertEqual(state, {})
+        messages[0]['flags'] = ['\\Seen']
+        output, state = scan(1001400, state)
+        self.assertNotIn('MUTATION', output)
+        messages[0]['date'] = 2  # Reused UID must not inherit another message's timer.
+        output, _ = scan(1003000, state)
+        self.assertNotIn('MUTATION', output)
 
     def test_diagnostics_explain_earlier_waiting_rule(self):
         data = defaults()
@@ -378,7 +430,7 @@ class EngineTests(unittest.TestCase):
         data['rules'].pop(0)
         result = self.run_engine(messages, data)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn('Cdc Habitat: 1 messages · move (preview only)', result.stdout)
+        self.assertIn('Cdc Habitat: 0 messages · move (preview only) · waiting for 20 minutes since first observed read: 1', result.stdout)
         self.assertIn('Cdc Habitat: evaluated 2; conditions matched 1; unreadable 0', result.stdout)
 
     def test_read_mail_still_requires_rule_and_branch_conditions(self):
@@ -558,14 +610,16 @@ class EngineTests(unittest.TestCase):
         result = subprocess.run([LUA, '-'], input=script, cwd=ROOT, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
 
-    def run_engine(self, messages, document=None, folders=None):
+    def run_engine(self, messages, document=None, folders=None, read_state=None, now=1000000):
         document = document or defaults()
         with tempfile.TemporaryDirectory() as directory:
             config = Path(directory) / 'rules.lua'
             fixture = Path(directory) / 'fixture.lua'
             rules.render(document, config)
-            fixture.write_text('return ' + rules.lua({'now': 1000000, 'messages': messages, 'folders': folders if folders is not None else ['Pro/Linkedin','Store/Amazon','Store/Leboncoin','Store/Uber','Health/Insurance']}))
-            return subprocess.run([LUA, 'tests/engine_harness.lua'], cwd=ROOT, env={**os.environ, 'RULES_FILE':str(config), 'FIXTURE_FILE':str(fixture), 'IMAP_USERNAME':'test', 'IMAP_PASSWORD':'test'}, capture_output=True, text=True)
+            state = Path(directory) / 'reads.lua'
+            state.write_text('return ' + rules.lua(read_state or {}))
+            fixture.write_text('return ' + rules.lua({'now': now, 'messages': messages, 'folders': folders if folders is not None else ['Pro/Linkedin','Store/Amazon','Store/Leboncoin','Store/Uber','Health/Insurance']}))
+            return subprocess.run([LUA, 'tests/engine_harness.lua'], cwd=ROOT, env={**os.environ, 'RULES_FILE':str(config), 'FIXTURE_FILE':str(fixture), 'READ_STATE_FILE':str(state), 'IMAP_USERNAME':'test', 'IMAP_PASSWORD':'test'}, capture_output=True, text=True)
 
     def test_preview_never_mutates(self):
         result = self.run_engine([{'from':'From: <hello@linkedin.com>','subject':'Hi','date':1}, {'from':'From: <code@insurance.example.com>','subject':'Votre code de sécurité','date':1}])
