@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.10
 
 - Show the running application version in the web UI on desktop and mobile.
   Release images use their release version; source builds show development.
