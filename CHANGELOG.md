@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.10
+
+- Show the running application version in the web UI on desktop and mobile.
+  Release images use their release version; source builds show development.
+
 ## 0.2.9
 
 - Correct release changelog versioning and restore the 0.2.8 release notes.

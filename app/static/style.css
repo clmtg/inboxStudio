@@ -98,3 +98,5 @@
 .branch-action-help{grid-column:1/-1;margin:0}.rule-icon.trash{background:#fff3dd;color:#977231}@media(max-width:800px){.tabs{grid-template-columns:repeat(3,minmax(0,1fr))}}
 
 .condition-mode{margin-bottom:12px;max-width:300px}
+
+.app-version{font-size:12px;line-height:1.5;color:#a6beb5;margin-top:10px;overflow-wrap:anywhere}
