@@ -2,6 +2,11 @@
 
 ## 0.2.9
 
+- Correct release changelog versioning and restore the 0.2.8 release notes.
+  Application behavior is unchanged from 0.2.8.
+
+## 0.2.8
+
 - Timed folder moves now wait more than 20 minutes after first observing mail
   as read, even when its age threshold has passed. Persist timers across scans
   and restarts; unread mail continues to use the configured age delay.
