@@ -1,4 +1,6 @@
 FROM debian:bookworm-slim
+ARG APP_VERSION=development
+ENV APP_VERSION=${APP_VERSION}
 LABEL org.opencontainers.image.source="https://github.com/clmtg/inboxStudio" \
       org.opencontainers.image.licenses="GPL-3.0-only" \
       org.opencontainers.image.title="inboxStudio"

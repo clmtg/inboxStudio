@@ -44,6 +44,8 @@ jobs:
         with:
           context: .
           push: true
+          build-args: |
+            APP_VERSION=${{ steps.version.outputs.number }}
           platforms: linux/amd64,linux/arm64
           tags: |
             ghcr.io/clmtg/inboxstudio:${{ steps.version.outputs.number }}
