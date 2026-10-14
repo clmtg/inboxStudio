@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.8
 
 - Timed folder moves now wait more than 20 minutes after first observing mail
   as read, even when its age threshold has passed. Persist timers across scans
