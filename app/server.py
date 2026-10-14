@@ -4,6 +4,7 @@ import os
 import threading
 import time
 import uuid
+from html import escape
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit, parse_qs
@@ -50,7 +51,11 @@ class Handler(BaseHTTPRequestHandler):
             files = {'/': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'text/javascript; charset=utf-8'), '/style.css': ('style.css', 'text/css; charset=utf-8')}
             if path in files:
                 name, mime = files[path]
-                return self.respond(200, (STATIC / name).read_bytes(), mime)
+                body = (STATIC / name).read_bytes()
+                if name == 'index.html':
+                    version = os.environ.get('APP_VERSION', '').strip() or 'development'
+                    body = body.replace(b'{{APP_VERSION}}', escape(version).encode('utf-8'))
+                return self.respond(200, body, mime)
             self.respond(404, {'error': 'Not found'})
         except (OSError, ValueError):
             self.respond(500, {'error': 'Could not read configuration or worker status'})

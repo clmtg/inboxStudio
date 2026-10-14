@@ -180,6 +180,18 @@ class HTTPTests(unittest.TestCase):
         except urllib.error.HTTPError as response:
             return response.code, response.read(), response.headers
 
+    def test_running_version_is_rendered_and_escaped(self):
+        for version, expected in [('0.2.10', b'Version 0.2.10'),
+                                  ('', b'Version development'),
+                                  ('<test>&', b'Version &lt;test&gt;&amp;')]:
+            with self.subTest(version=version), patch.dict(os.environ, {'APP_VERSION': version}):
+                code, body, headers = self.request('/')
+                self.assertEqual(code, 200)
+                self.assertIn(expected, body)
+                self.assertNotIn(b'{{APP_VERSION}}', body)
+                self.assertEqual(headers['Cache-Control'], 'no-store')
+                self.assertEqual(int(headers['Content-Length']), len(body))
+
     def test_proxy_auth_has_no_second_login_and_static_security(self):
         for path in ['/', '/api/rules', '/api/status']:
             code, _, headers = self.request(path)
